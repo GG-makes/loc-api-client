@@ -184,21 +184,10 @@ class TestBatchMapper:
         mock_conn.__enter__.return_value = mock_conn
         mock_conn.__exit__.return_value = None
 
-        # Mock database results - use simple dict-like objects instead of Mocks
-        class MockRow:
-            def __init__(self, **kwargs):
-                self._data = kwargs
-                for key, value in kwargs.items():
-                    setattr(self, key, value)
-            
-            def keys(self):
-                return self._data.keys()
-            
-            def __getitem__(self, key):
-                return self._data[key]
-            
-            def __iter__(self):
-                return iter(self._data.items())
+        # Replace MockRow with a simple dict subclass that also supports attribute access
+        class MockRow(dict):
+            def __getattr__(self, key):
+                return self[key]
         
         mock_cursor.fetchall.return_value = [
             MockRow(item_id='page1', page_url='/lccn/sn12345678/1900-01-01/ed-1/seq-1/', downloaded=True, created_at='2023-01-01'),
@@ -315,22 +304,12 @@ class TestBatchSessionTracker:
         mock_conn.cursor.return_value = mock_cursor
         mock_conn.__enter__.return_value = mock_conn
         mock_conn.__exit__.return_value = None
-        # Mock active sessions - use MockRow class
-        class MockRow:
-            def __init__(self, **kwargs):
-                self._data = kwargs
-                for key, value in kwargs.items():
-                    setattr(self, key, value)
-            
-            def keys(self):
-                return self._data.keys()
-            
-            def __getitem__(self, key):
-                return self._data[key]
-            
-            def __iter__(self):
-                return iter(self._data.items())
-        
+
+        # Replace MockRow with a simple dict subclass that also supports attribute access
+        class MockRow(dict):
+            def __getattr__(self, key):
+                return self[key]
+                
         mock_cursor.fetchall.return_value = [
             MockRow(session_name='session1', status='active', current_batch_name='batch1'),
             MockRow(session_name='session2', status='captcha_blocked', current_batch_name='batch2')
@@ -358,22 +337,13 @@ class TestBatchSessionTracker:
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_cursor
         mock_conn.close.return_value = None
-        
-        # Mock session data - use MockRow class
-        class MockRow:
-            def __init__(self, **kwargs):
-                self._data = kwargs
-                for key, value in kwargs.items():
-                    setattr(self, key, value)
-            
-            def keys(self):
-                return self._data.keys()
-            
-            def __getitem__(self, key):
-                return self._data[key]
-            
-            def __iter__(self):
-                return iter(self._data.items())
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = None
+
+        # Replace MockRow with a simple dict subclass that also supports attribute access
+        class MockRow(dict):
+            def __getattr__(self, key):
+                return self[key]
         
         session_row = MockRow(
             session_name='test_session',
@@ -409,7 +379,9 @@ class TestBatchSessionTracker:
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_cursor
         mock_conn.close.return_value = None
-        
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = None
+
         mock_cursor.fetchone.return_value = None
         
         tracker = BatchSessionTracker(mock_storage)

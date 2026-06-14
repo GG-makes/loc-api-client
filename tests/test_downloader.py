@@ -209,14 +209,18 @@ class TestDownloadProcessor:
         assert 'Network error' in result['error']
         assert not file_path.exists()
     
-    @patch('requests.Session.get')
-    def test_download_page_success(self, mock_get, downloader, mock_storage, temp_dir):
-        test_content = b'test pdf content' * 1000  # enough to be > 0 MB
+    @patch('requests.Session')
+    def test_download_page_success(self, mock_session_class, downloader, mock_storage, temp_dir):
+        test_content = b'test pdf content' * 1000
+
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
         mock_response.headers = {'content-length': str(len(test_content))}
         mock_response.iter_content.return_value = [test_content]
-        mock_get.return_value = mock_response
+
+        mock_session = Mock()
+        mock_session.get.return_value = mock_response
+        mock_session_class.return_value = mock_session
 
         mock_storage.get_page_by_item_id.return_value = {
             'item_id': 'test_page_1',
@@ -228,39 +232,36 @@ class TestDownloadProcessor:
             'page_url': 'https://example.com/page1',
             'pdf_url': 'https://example.com/page1.pdf',
             'jp2_url': None,
-            'ocr_text': None,
+            'ocr_text': 'Sample OCR text content',
             'downloaded': False
         }
 
         result = downloader._download_page('test_page_1')
 
         assert result['success'] is True
-        assert result['size_mb'] > 0 # account for the fact that 16 bytes rounds to 0 MB
+        assert result['size_mb'] > 0
         assert 'files' in result
-        
-        # Check that files were created
-        expected_dir = Path(temp_dir) / 'sn12345678' / '1906' / '04'
+
+        # Directory matches date in mock data: 1925/01
+        expected_dir = Path(temp_dir) / 'sn12345678' / '1925' / '01'
         assert expected_dir.exists()
-        
-        # Check PDF file
+
         pdf_file = expected_dir / 'test_page_1.pdf'
         assert pdf_file.exists()
-        
-        # Check OCR text file
+
         ocr_file = expected_dir / 'test_page_1_ocr.txt'
         assert ocr_file.exists()
         assert ocr_file.read_text(encoding='utf-8') == 'Sample OCR text content'
-        
-        # Check metadata file
+
         metadata_file = expected_dir / 'test_page_1_metadata.json'
         assert metadata_file.exists()
         metadata = json.loads(metadata_file.read_text(encoding='utf-8'))
         assert metadata['item_id'] == 'test_page_1'
         assert metadata['lccn'] == 'sn12345678'
-        
-        # Verify storage was updated
+
         mock_storage.mark_page_downloaded.assert_called_once_with('test_page_1')
-    
+
+        
     def test_download_page_already_downloaded(self, downloader, mock_storage):
         """Test download of already downloaded page."""
         # Mock page as already downloaded

@@ -177,7 +177,7 @@ class TestBatchMapper:
         mock_client = Mock(spec=LocApiClient)
         
         # Mock database
-        mock_conn = Mock()
+        mock_conn = MagicMock()
         mock_cursor = Mock()
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_cursor
@@ -309,7 +309,7 @@ class TestBatchSessionTracker:
         mock_storage.db_path = '/test/db.db'
         
         # Mock database
-        mock_conn = Mock()
+        mock_conn = MagicMock()
         mock_cursor = Mock()
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_cursor
@@ -353,7 +353,7 @@ class TestBatchSessionTracker:
         mock_storage.db_path = '/test/db.db'
         
         # Mock database
-        mock_conn = Mock()
+        mock_conn = MagicMock()
         mock_cursor = Mock()
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_cursor
@@ -404,7 +404,7 @@ class TestBatchSessionTracker:
         mock_storage.db_path = '/test/db.db'
         
         # Mock database
-        mock_conn = Mock()
+        mock_conn = MagicMock()
         mock_cursor = Mock()
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_cursor

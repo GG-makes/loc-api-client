@@ -13,18 +13,23 @@ from newsagger.config import Config
 
 class TestConfig:
     """Test cases for Config class."""
-    
+        
     def test_init_default_values(self):
         """Test configuration initialization with default values."""
-        config = Config()
-        
+        import os
+        from unittest.mock import patch
+
+        with patch.dict(os.environ, {}, clear=True), \
+            patch('newsagger.config.load_dotenv'):
+            config = Config()
+
         assert config.loc_base_url == 'https://chroniclingamerica.loc.gov/'
-        assert config.request_delay >= 3.0  # Should enforce minimum
-        assert config.max_retries == 2  # Set by .env file
+        assert config.request_delay >= 3.0
+        assert config.max_retries == 3  # actual default in source code
         assert config.database_path == './data/newsagger.db'
         assert config.download_dir == './data/downloads'
         assert config.log_level == 'INFO'
-    
+                
     def test_init_with_env_file(self):
         """Test configuration with explicit env file."""
         # Create temporary env file

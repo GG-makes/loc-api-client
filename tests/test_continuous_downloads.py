@@ -43,10 +43,13 @@ class TestContinuousDownloads:
         ]
         
         # Setup storage mock responses
-        mock_storage.get_download_queue.side_effect = [
-            mock_queue_items,  # First call returns items
-            []  # Second call returns empty (triggering idle timeout)
-        ]
+        def queue_side_effect(*args, **kwargs):
+            if not hasattr(queue_side_effect, "called"):
+                queue_side_effect.called = True
+                return mock_queue_items
+            return []
+
+        mock_storage.get_download_queue.side_effect = queue_side_effect
         
         # Mock the queue status update method (correct name is update_queue_item)
         mock_storage.update_queue_item = Mock()
@@ -68,7 +71,7 @@ class TestContinuousDownloads:
                     result = downloader.process_queue(
                         max_items=10,
                         continuous=True,
-                        max_idle_minutes=0.1  # Very short timeout for test
+                        max_idle_minutes=0.01  # Very short timeout for test - now even tigher for Windows
                     )
         
         # Verify the method was called (this will fail if method name is wrong)
@@ -104,5 +107,5 @@ class TestContinuousDownloads:
                 downloader.process_queue(
                     max_items=1,
                     continuous=True,
-                    max_idle_minutes=0.1
+                    max_idle_minutes=0.01 # Tighten shutdown window for Windows
                 )

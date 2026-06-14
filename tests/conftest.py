@@ -25,6 +25,9 @@ def temp_db():
     yield db_path
     
     # Cleanup
+    import gc
+    gc.collect()
+
     Path(db_path).unlink(missing_ok=True)
 
 

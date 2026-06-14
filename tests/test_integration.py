@@ -36,14 +36,19 @@ class TestIntegration:
         client = LocApiClient(**integration_config.get_api_config())
         processor = NewsDataProcessor()
         storage = NewsStorage(integration_config.database_path)
-        
-        return {
+
+        yield {
             'client': client,
             'processor': processor,
             'storage': storage,
             'config': integration_config
         }
-    
+
+        # Explicitly release storage to unlock SQLite file before TemporaryDirectory cleanup (Windows)
+        del storage
+        import gc
+        gc.collect()
+        
     @responses.activate
     def test_end_to_end_newspaper_workflow(self, components):
         """Test complete workflow: fetch newspapers -> process -> store."""

@@ -36,10 +36,37 @@ class TestDiscoveryAutomation:
             self.storage
         )
     
+    # def teardown_method(self):
+    #     """Clean up test environment."""
+    #     try:
+    #         # force cleanup of objects that might hold DB handles
+    #         del self.storage
+    #         del self.downloader
+    #     except AttributeError:
+    #         pass
+
+    #     import gc
+    #     gc.collect()
+
+    #     Path(self.temp_db.name).unlink(missing_ok=True)
     def teardown_method(self):
         """Clean up test environment."""
-        Path(self.temp_db.name).unlink(missing_ok=True)
-    
+        try:
+            del self.discovery
+        except AttributeError:
+            pass
+        try:
+            del self.storage
+        except AttributeError:
+            pass
+
+        import gc
+        gc.collect()
+
+        if self.temp_db:
+            self.temp_db.close()  # Release Windows file handle on NamedTemporaryFile
+            Path(self.temp_db.name).unlink(missing_ok=True)        
+            
     def test_discover_facet_content_date_range(self):
         """Test discovering content for a date range facet."""
         # Create a test facet

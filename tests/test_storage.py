@@ -394,6 +394,11 @@ class TestNewsStorage:
             
             assert nested_path.parent.exists()
             assert nested_path.exists()
+
+            # cleanup barrier for windows 
+            del storage
+            import gc
+            gc.collect()
     
     def test_get_search_facet(self, storage):
         """Test getting a specific search facet by ID."""

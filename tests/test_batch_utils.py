@@ -169,7 +169,7 @@ class TestBatchMapper:
         assert result == expected
         assert mapper._lccn_to_batch_cache == expected
     
-    @patch('sqlite3.connect')
+    @patch('newsagger.batch_utils.sqlite3.connect')
     def test_get_batch_discovery_status(self, mock_connect):
         """Test getting batch discovery status."""
         mock_storage = Mock(spec=NewsStorage)
@@ -181,9 +181,9 @@ class TestBatchMapper:
         mock_cursor = Mock()
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_cursor
-        mock_conn.__enter__ = Mock(return_value=mock_conn)
-        mock_conn.__exit__ = Mock(return_value=None)
-        
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = None
+
         # Mock database results - use simple dict-like objects instead of Mocks
         class MockRow:
             def __init__(self, **kwargs):
@@ -302,7 +302,7 @@ class TestBatchSessionTracker:
         
         assert tracker.storage == mock_storage
     
-    @patch('sqlite3.connect')
+    @patch('newsagger.batch_utils.sqlite3.connect')
     def test_get_active_sessions(self, mock_connect):
         """Test getting active batch discovery sessions."""
         mock_storage = Mock(spec=NewsStorage)
@@ -313,9 +313,8 @@ class TestBatchSessionTracker:
         mock_cursor = Mock()
         mock_connect.return_value = mock_conn
         mock_conn.cursor.return_value = mock_cursor
-        mock_conn.__enter__ = Mock(return_value=mock_conn)
-        mock_conn.__exit__ = Mock(return_value=None)
-        
+        mock_conn.__enter__.return_value = mock_conn
+        mock_conn.__exit__.return_value = None
         # Mock active sessions - use MockRow class
         class MockRow:
             def __init__(self, **kwargs):
@@ -347,7 +346,7 @@ class TestBatchSessionTracker:
         assert 'active' in call_args
         assert 'captcha_blocked' in call_args
     
-    @patch('sqlite3.connect')
+    @patch('newsagger.batch_utils.sqlite3.connect')
     def test_get_session_progress(self, mock_connect):
         """Test getting detailed session progress."""
         mock_storage = Mock(spec=NewsStorage)
@@ -398,7 +397,7 @@ class TestBatchSessionTracker:
         # Verify it calculated rates (1000 pages in 1 hour = 1000 pages/hour)
         assert result['pages_per_hour'] == 1000
     
-    @patch('sqlite3.connect')
+    @patch('newsagger.batch_utils.sqlite3.connect')
     def test_get_session_progress_not_found(self, mock_connect):
         """Test getting progress for non-existent session."""
         mock_storage = Mock(spec=NewsStorage)
@@ -424,7 +423,7 @@ class TestBatchUtilsIntegration:
     
     def test_batch_mapper_full_workflow(self):
         """Test full BatchMapper workflow with mocked components."""
-        with tempfile.NamedTemporaryFile(suffix='.db') as tmp_db:
+        with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp_db:
             # Create storage
             storage = NewsStorage(tmp_db.name)
             

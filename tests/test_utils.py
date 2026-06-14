@@ -300,7 +300,7 @@ class TestConvenienceDecorators:
 
 class TestDatabaseOperationMixin:
     """Test DatabaseOperationMixin class."""
-    
+
     @pytest.fixture
     def temp_db(self):
         """Create a temporary database for testing."""
@@ -319,7 +319,6 @@ class TestDatabaseOperationMixin:
                     completed_at TIMESTAMP
                 )
             """)
-            # Insert test data
             conn.execute("""
                 INSERT INTO test_table (id, name, status, value)
                 VALUES (1, 'test_item', 'pending', 100)
@@ -328,9 +327,18 @@ class TestDatabaseOperationMixin:
         
         yield db_path
         
-        # Cleanup
-        Path(db_path).unlink()
-    
+        # Cleanup - retry loop needed on Windows where SQLite releases locks asynchronously
+        import gc
+        import time
+        gc.collect()
+        
+        for _ in range(10):
+            try:
+                Path(db_path).unlink(missing_ok=True)
+                break
+            except PermissionError:
+                time.sleep(0.1)
+                
     def test_mixin_inheritance(self, temp_db):
         """Test that mixin can be inherited and used."""
         class TestClass(DatabaseOperationMixin):

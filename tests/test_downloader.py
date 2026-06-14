@@ -211,19 +211,31 @@ class TestDownloadProcessor:
     
     @patch('requests.Session.get')
     def test_download_page_success(self, mock_get, downloader, mock_storage, temp_dir):
-        """Test successful page download."""
-        # Mock successful HTTP responses
-        test_content = b'test pdf content'
+        test_content = b'test pdf content' * 1000  # enough to be > 0 MB
         mock_response = Mock()
         mock_response.raise_for_status.return_value = None
         mock_response.headers = {'content-length': str(len(test_content))}
         mock_response.iter_content.return_value = [test_content]
         mock_get.return_value = mock_response
-        
+
+        mock_storage.get_page_by_item_id.return_value = {
+            'item_id': 'test_page_1',
+            'lccn': 'sn12345678',
+            'title': 'Test Paper',
+            'date': '1925-01-01',
+            'edition': 1,
+            'sequence': 1,
+            'page_url': 'https://example.com/page1',
+            'pdf_url': 'https://example.com/page1.pdf',
+            'jp2_url': None,
+            'ocr_text': None,
+            'downloaded': False
+        }
+
         result = downloader._download_page('test_page_1')
-        
+
         assert result['success'] is True
-        assert result['size_mb'] > 0
+        assert result['size_mb'] > 0 # account for the fact that 16 bytes rounds to 0 MB
         assert 'files' in result
         
         # Check that files were created
@@ -269,16 +281,16 @@ class TestDownloadProcessor:
         assert result['success'] is True
         assert result['skipped'] is True
         mock_storage.mark_page_downloaded.assert_not_called()
-    
+        
     def test_download_page_not_found(self, downloader, mock_storage):
         """Test download of non-existent page."""
-        mock_storage.get_pages.return_value = []
-        
+        mock_storage.get_page_by_item_id.return_value = None
+
         result = downloader._download_page('nonexistent_page')
-        
+
         assert result['success'] is False
-        assert 'not found' in result['error']
-    
+        assert 'not found' in result['error']    
+
     @patch.object(DownloadProcessor, '_download_page')
     def test_download_facet_content(self, mock_download_page, downloader, mock_storage):
         """Test downloading all content from a facet."""
@@ -411,33 +423,38 @@ class TestDownloadProcessor:
     
     @patch.object(DownloadProcessor, '_process_queue_item')
     def test_process_queue_with_updates(self, mock_process_item, downloader, mock_storage):
-        """Test queue processing with proper status updates."""
         mock_process_item.return_value = {'success': True, 'size_mb': 2.5}
-        
-        result = downloader.process_queue(max_items=1)
-        
+
+        with patch.object(downloader, '_process_batch_updates') as mock_batch_updates:
+            result = downloader.process_queue(max_items=1)
+
         assert result['downloaded'] == 1
         assert result['errors'] == 0
         assert result['total_size_mb'] == 2.5
-        
-        # Verify status updates
+
         mock_storage.update_queue_item.assert_any_call(1, status='active')
-        mock_storage.update_queue_item.assert_any_call(1, status='completed', progress_percent=100.0)
-    
+        
+        mock_batch_updates.assert_called_once()
+        update = mock_batch_updates.call_args[0][0][0]
+        assert update['id'] == 1
+        assert update['status'] == 'completed'
+        assert update['progress_percent'] == 100.0
+
     @patch.object(DownloadProcessor, '_process_queue_item')
     def test_process_queue_with_errors(self, mock_process_item, downloader, mock_storage):
-        """Test queue processing with errors."""
         mock_process_item.return_value = {'success': False, 'error': 'Download failed'}
-        
-        result = downloader.process_queue(max_items=1)
-        
+
+        with patch.object(downloader, '_process_batch_updates') as mock_batch_updates:
+            result = downloader.process_queue(max_items=1)
+
         assert result['downloaded'] == 0
         assert result['errors'] == 1
-        
-        # Verify error status update
-        mock_storage.update_queue_item.assert_any_call(
-            1, status='failed', error_message='Download failed'
-        )
+
+        mock_batch_updates.assert_called_once()
+        update = mock_batch_updates.call_args[0][0][0]
+        assert update['id'] == 1
+        assert update['status'] == 'failed'
+        assert update['error_message'] == 'Download failed'
     
     def test_process_queue_item_page(self, downloader):
         """Test processing a page queue item."""

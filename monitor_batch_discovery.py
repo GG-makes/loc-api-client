@@ -37,32 +37,31 @@ class BatchDiscoveryMonitor:
         
     def get_batch_sessions(self) -> List[Dict]:
         """Get all batch discovery sessions."""
-        conn = sqlite3.connect(self.storage.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT * FROM batch_discovery_sessions
-            ORDER BY started_at DESC
-        """)
-        
-        sessions = [dict(row) for row in cursor.fetchall()]
-        conn.close()
+        with sqlite3.connect(self.storage.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT * FROM batch_discovery_sessions
+                ORDER BY started_at DESC
+            """)
+            
+            sessions = [dict(row) for row in cursor.fetchall()]
         return sessions
     
     def get_session_details(self, session_name: str) -> Optional[Dict]:
         """Get detailed information about a specific session."""
-        conn = sqlite3.connect(self.storage.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT * FROM batch_discovery_sessions
-            WHERE session_name = ?
-        """, (session_name,))
-        
-        row = cursor.fetchone()
-        conn.close()
+
+        with sqlite3.connect(self.storage.db_path) as conn: 
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT * FROM batch_discovery_sessions
+                WHERE session_name = ?
+            """, (session_name,))
+            
+            row = cursor.fetchone()
         return dict(row) if row else None
     
     def create_session_table(self, sessions: List[Dict]) -> Table:
@@ -204,22 +203,20 @@ class BatchDiscoveryMonitor:
             return table
         
         # Get batch history from the database
-        conn = sqlite3.connect(self.storage.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        # This would require tracking individual batch completions in the database
-        # For now, show current batch if available
-        if session.get('current_batch_name'):
-            table.add_row(
-                session['current_batch_name'][:30],
-                str(session.get('batch_pages_discovered', 0)),
-                f"{session.get('current_issue_index', 0)}/{session.get('total_issues_in_batch', 0)}",
-                "Processing",
-                "In Progress"
-            )
-        
-        conn.close()
+        with sqlite3.connect(self.storage.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            
+            # This would require tracking individual batch completions in the database
+            # For now, show current batch if available
+            if session.get('current_batch_name'):
+                table.add_row(
+                    session['current_batch_name'][:30],
+                    str(session.get('batch_pages_discovered', 0)),
+                    f"{session.get('current_issue_index', 0)}/{session.get('total_issues_in_batch', 0)}",
+                    "Processing",
+                    "In Progress"
+                )
+            
         return table
     
     def monitor(self, refresh_interval: int = 5):

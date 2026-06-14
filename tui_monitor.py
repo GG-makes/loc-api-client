@@ -291,30 +291,30 @@ class ProgressMonitor:
             
             # Get download queue statistics with timeout protection
             try:
-                conn = sqlite3.connect(self.db_path, timeout=timeout)
-                cursor = conn.cursor()
+                with sqlite3.connect(self.db_path, timeout=timeout) as conn:
+                    cursor = conn.cursor()
+                    
+                    # Use a single optimized query instead of multiple queries
+                    cursor.execute("""
+                        SELECT 
+                            SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                            SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
+                            SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+                            SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
+                            COUNT(*) as total
+                        FROM download_queue
+                    """)
+                    
+                    result = cursor.fetchone()
+                    if result:
+                        stats.items_downloaded = result[0] or 0
+                        queued_count = result[1] or 0
+                        in_progress_count = result[2] or 0
+                        active_count = result[3] or 0
+                        stats.total_queue_items = result[4] or 0
                 
-                # Use a single optimized query instead of multiple queries
-                cursor.execute("""
-                    SELECT 
-                        SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
-                        SUM(CASE WHEN status = 'queued' THEN 1 ELSE 0 END) as queued,
-                        SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
-                        SUM(CASE WHEN status = 'active' THEN 1 ELSE 0 END) as active,
-                        COUNT(*) as total
-                    FROM download_queue
-                """)
-                
-                result = cursor.fetchone()
-                if result:
-                    stats.items_downloaded = result[0] or 0
-                    queued_count = result[1] or 0
-                    in_progress_count = result[2] or 0
-                    active_count = result[3] or 0
-                    stats.total_queue_items = result[4] or 0
-                
-                conn.close()
             except Exception as e:
+                # TODO: Close any open connection in the exception
                 # Fallback to storage methods if direct queries fail
                 try:
                     queued_items = self.storage.get_download_queue(status='queued')
@@ -330,70 +330,70 @@ class ProgressMonitor:
             
             # Get batch discovery data with timeout protection
             try:
-                conn = sqlite3.connect(self.db_path, timeout=timeout)
-                cursor = conn.cursor()
-                
-                # Single optimized query for all batch session data
-                cursor.execute("""
-                    SELECT 
-                        current_batch_name,
-                        current_batch_index,
-                        total_batches,
-                        current_issue_index,
-                        total_issues_in_batch,
-                        total_pages_discovered,
-                        total_pages_enqueued,
-                        datetime(updated_at, 'localtime') as last_update
-                    FROM batch_discovery_sessions
-                    WHERE session_name = 'batch_discovery_main'
-                    ORDER BY updated_at DESC
-                    LIMIT 1
-                """)
-                session = cursor.fetchone()
-                if session:
-                    stats.current_batch = session[0] or ""
-                    stats.batches_discovered = session[1] or 0
-                    stats.total_batches = session[2] or 25
-                    stats.current_issue_index = session[3] or 0
-                    stats.total_issues_in_batch = session[4] or 0
-                    stats.total_pages_discovered = session[5] or 0
-                    stats.total_pages_enqueued = session[6] or 0
+                with sqlite3.connect(self.db_path, timeout=timeout) as conn:
+                    cursor = conn.cursor()
                     
-                    # Calculate batch progress
-                    if stats.total_batches > 0:
-                        stats.current_batch_progress = (stats.batches_discovered / stats.total_batches) * 100
-                    
-                    # Calculate discovery rates from recent activity
-                    if session[7]:  # last_update timestamp
-                        from datetime import datetime as dt2, timedelta
-                        last_update = dt2.strptime(session[7], '%Y-%m-%d %H:%M:%S')
-                        time_since_update = (dt2.now() - last_update).total_seconds()
+                    # Single optimized query for all batch session data
+                    cursor.execute("""
+                        SELECT 
+                            current_batch_name,
+                            current_batch_index,
+                            total_batches,
+                            current_issue_index,
+                            total_issues_in_batch,
+                            total_pages_discovered,
+                            total_pages_enqueued,
+                            datetime(updated_at, 'localtime') as last_update
+                        FROM batch_discovery_sessions
+                        WHERE session_name = 'batch_discovery_main'
+                        ORDER BY updated_at DESC
+                        LIMIT 1
+                    """)
+                    session = cursor.fetchone()
+                    if session:
+                        stats.current_batch = session[0] or ""
+                        stats.batches_discovered = session[1] or 0
+                        stats.total_batches = session[2] or 25
+                        stats.current_issue_index = session[3] or 0
+                        stats.total_issues_in_batch = session[4] or 0
+                        stats.total_pages_discovered = session[5] or 0
+                        stats.total_pages_enqueued = session[6] or 0
                         
-                        # Estimate rate based on recent activity and issue processing speed
-                        # If the session was updated recently, discovery is active
-                        if time_since_update < 10:  # Updated within last 10 seconds
-                            # Estimate based on average issue processing (8 pages per issue, 5 seconds per issue)
-                            estimated_pages_per_minute = (8 * 60) / 5  # ~96 pages/min
-                            estimated_issues_per_minute = 60 / 5      # ~12 issues/min
+                        # Calculate batch progress
+                        if stats.total_batches > 0:
+                            stats.current_batch_progress = (stats.batches_discovered / stats.total_batches) * 100
+                        
+                        # Calculate discovery rates from recent activity
+                        if session[7]:  # last_update timestamp
+                            from datetime import datetime as dt2, timedelta
+                            last_update = dt2.strptime(session[7], '%Y-%m-%d %H:%M:%S')
+                            time_since_update = (dt2.now() - last_update).total_seconds()
                             
-                            stats.discovery_rate_per_minute = estimated_pages_per_minute
-                            stats.discovery_rate_per_hour = estimated_pages_per_minute * 60
-                            stats.issues_per_minute = estimated_issues_per_minute
-                        
-                        # Try to get actual rate from download queue additions
-                        cursor.execute("""
-                            SELECT COUNT(*) 
-                            FROM download_queue 
-                            WHERE created_at > datetime('now', '-1 minute')
-                        """)
-                        recent_additions = cursor.fetchone()[0]
-                        if recent_additions > 0:
-                            # Override estimate with actual data
-                            stats.discovery_rate_per_minute = recent_additions
-                            stats.discovery_rate_per_hour = recent_additions * 60
-                
-                conn.close()
+                            # Estimate rate based on recent activity and issue processing speed
+                            # If the session was updated recently, discovery is active
+                            if time_since_update < 10:  # Updated within last 10 seconds
+                                # Estimate based on average issue processing (8 pages per issue, 5 seconds per issue)
+                                estimated_pages_per_minute = (8 * 60) / 5  # ~96 pages/min
+                                estimated_issues_per_minute = 60 / 5      # ~12 issues/min
+                                
+                                stats.discovery_rate_per_minute = estimated_pages_per_minute
+                                stats.discovery_rate_per_hour = estimated_pages_per_minute * 60
+                                stats.issues_per_minute = estimated_issues_per_minute
+                            
+                            # Try to get actual rate from download queue additions
+                            cursor.execute("""
+                                SELECT COUNT(*) 
+                                FROM download_queue 
+                                WHERE created_at > datetime('now', '-1 minute')
+                            """)
+                            recent_additions = cursor.fetchone()[0]
+                            if recent_additions > 0:
+                                # Override estimate with actual data
+                                stats.discovery_rate_per_minute = recent_additions
+                                stats.discovery_rate_per_hour = recent_additions * 60
+                    
             except Exception as e:
+                # TODO: Close any open connection in the exception
                 # If query fails, keep default values
                 pass
             
@@ -408,18 +408,17 @@ class ProgressMonitor:
             
             # Check database estimates first, fall back to directory scan if needed
             try:
-                conn = sqlite3.connect(self.db_path, timeout=timeout)
-                cursor = conn.cursor()
-                
-                cursor.execute("""
-                    SELECT SUM(estimated_size_mb) 
-                    FROM download_queue 
-                    WHERE status = 'completed'
-                """)
-                result = cursor.fetchone()
-                db_estimate = result[0] if result and result[0] else 0
-                
-                conn.close()
+                with sqlite3.connect(self.db_path, timeout=timeout) as conn:
+                    cursor = conn.cursor()
+                    
+                    cursor.execute("""
+                        SELECT SUM(estimated_size_mb) 
+                        FROM download_queue 
+                        WHERE status = 'completed'
+                    """)
+                    result = cursor.fetchone()
+                    db_estimate = result[0] if result and result[0] else 0
+                    
                 
                 # If database estimate is missing/zero, calculate from directory
                 if db_estimate <= 0:
@@ -428,6 +427,7 @@ class ProgressMonitor:
                     stats.download_size_mb = db_estimate
                     
             except:
+                # TODO: close any open connection in the exception
                 # Final fallback - try directory scan, then estimate
                 try:
                     stats.download_size_mb = self._calculate_downloads_directory_size()
@@ -506,122 +506,121 @@ class ProgressMonitor:
         
         # Try to calculate actual rates from database session activity
         try:
-            conn = sqlite3.connect(self.db_path)
-            cursor = conn.cursor()
-            
-            # Discovery estimate based on current batch progress and remaining batches
-            if stats.batches_discovered > 0 and stats.batches_discovered < stats.total_batches:
-                # Calculate based on current batch being ~81% complete (from logs)
-                # Current batch az_chrysocolla has ~1213 issues, we're at issue ~984 (81%)
-                current_batch_remaining_issues = 1213 - 984  # ~229 issues left in current batch
-                remaining_complete_batches = stats.total_batches - stats.batches_discovered - 1  # -1 for current batch
+            with sqlite3.connect(self.db_path, timeout=timeout) as conn:
+                cursor = conn.cursor()
                 
-                # Estimate 5 seconds per issue (from log patterns) and 1000 issues per batch average
-                seconds_per_issue = 5.0
-                issues_per_batch = 1000  # Conservative average
-                
-                # Time for current batch completion
-                current_batch_seconds = current_batch_remaining_issues * seconds_per_issue
-                
-                # Time for remaining complete batches  
-                remaining_batches_seconds = remaining_complete_batches * issues_per_batch * seconds_per_issue
-                
-                total_seconds_remaining = current_batch_seconds + remaining_batches_seconds
-                
-                if total_seconds_remaining > 0:
-                    stats.discovery_rate_per_hour = 3600 / seconds_per_issue  # Issues per hour
-                    hours_remaining = total_seconds_remaining / 3600
-                    stats.estimated_discovery_completion = now + timedelta(hours=hours_remaining)
-            
-            # Download estimate based on completed vs queued items
-            if stats.items_downloaded > 0 and stats.total_queue_items > stats.items_downloaded:
-                # Get download completion activity in multiple time windows
-                cursor.execute("""
-                    SELECT 
-                        (SELECT COUNT(*) FROM download_queue WHERE status = 'completed' AND updated_at > datetime('now', '-5 minutes')) as last_5_min,
-                        (SELECT COUNT(*) FROM download_queue WHERE status = 'completed' AND updated_at > datetime('now', '-15 minutes')) as last_15_min,
-                        (SELECT COUNT(*) FROM download_queue WHERE status = 'completed' AND updated_at > datetime('now', '-1 hour')) as last_hour
-                """)
-                result = cursor.fetchone()
-                completions_5min = result[0] if result else 0
-                completions_15min = result[1] if result else 0
-                completions_hour = result[2] if result else 0
-                
-                # Use the most recent non-zero rate, preferring shorter time windows
-                if completions_5min > 0:
-                    # Use 5-minute rate if active
-                    stats.download_rate_per_hour = completions_5min * 12  # Scale to hourly
-                elif completions_15min > 0:
-                    # Use 15-minute rate if active
-                    stats.download_rate_per_hour = completions_15min * 4  # Scale to hourly
-                elif completions_hour > 0:
-                    # Use hourly rate as fallback
-                    stats.download_rate_per_hour = completions_hour
-                else:
-                    # No recent activity - set rate to 0
-                    stats.download_rate_per_hour = 0
+                # Discovery estimate based on current batch progress and remaining batches
+                if stats.batches_discovered > 0 and stats.batches_discovered < stats.total_batches:
+                    # Calculate based on current batch being ~81% complete (from logs)
+                    # Current batch az_chrysocolla has ~1213 issues, we're at issue ~984 (81%)
+                    current_batch_remaining_issues = 1213 - 984  # ~229 issues left in current batch
+                    remaining_complete_batches = stats.total_batches - stats.batches_discovered - 1  # -1 for current batch
                     
-                # Check for download stalls and determine reason
-                if completions_5min == 0 and stats.total_queue_items > stats.items_downloaded:
-                    stats.downloads_stalled = True
+                    # Estimate 5 seconds per issue (from log patterns) and 1000 issues per batch average
+                    seconds_per_issue = 5.0
+                    issues_per_batch = 1000  # Conservative average
                     
-                    # Try to determine why downloads are stalled
-                    # Check for CAPTCHA first
-                    if stats.captcha_backoff_active:
-                        stats.downloads_stall_reason = "CAPTCHA cooldown active"
+                    # Time for current batch completion
+                    current_batch_seconds = current_batch_remaining_issues * seconds_per_issue
+                    
+                    # Time for remaining complete batches  
+                    remaining_batches_seconds = remaining_complete_batches * issues_per_batch * seconds_per_issue
+                    
+                    total_seconds_remaining = current_batch_seconds + remaining_batches_seconds
+                    
+                    if total_seconds_remaining > 0:
+                        stats.discovery_rate_per_hour = 3600 / seconds_per_issue  # Issues per hour
+                        hours_remaining = total_seconds_remaining / 3600
+                        stats.estimated_discovery_completion = now + timedelta(hours=hours_remaining)
+                
+                # Download estimate based on completed vs queued items
+                if stats.items_downloaded > 0 and stats.total_queue_items > stats.items_downloaded:
+                    # Get download completion activity in multiple time windows
+                    cursor.execute("""
+                        SELECT 
+                            (SELECT COUNT(*) FROM download_queue WHERE status = 'completed' AND updated_at > datetime('now', '-5 minutes')) as last_5_min,
+                            (SELECT COUNT(*) FROM download_queue WHERE status = 'completed' AND updated_at > datetime('now', '-15 minutes')) as last_15_min,
+                            (SELECT COUNT(*) FROM download_queue WHERE status = 'completed' AND updated_at > datetime('now', '-1 hour')) as last_hour
+                    """)
+                    result = cursor.fetchone()
+                    completions_5min = result[0] if result else 0
+                    completions_15min = result[1] if result else 0
+                    completions_hour = result[2] if result else 0
+                    
+                    # Use the most recent non-zero rate, preferring shorter time windows
+                    if completions_5min > 0:
+                        # Use 5-minute rate if active
+                        stats.download_rate_per_hour = completions_5min * 12  # Scale to hourly
+                    elif completions_15min > 0:
+                        # Use 15-minute rate if active
+                        stats.download_rate_per_hour = completions_15min * 4  # Scale to hourly
+                    elif completions_hour > 0:
+                        # Use hourly rate as fallback
+                        stats.download_rate_per_hour = completions_hour
                     else:
-                        # Check for items stuck in progress
-                        cursor.execute("""
-                            SELECT COUNT(*), MIN(updated_at) 
-                            FROM download_queue 
-                            WHERE status = 'in_progress'
-                        """)
-                        in_progress_result = cursor.fetchone()
-                        in_progress_count = in_progress_result[0] if in_progress_result else 0
-                        oldest_in_progress = in_progress_result[1] if in_progress_result and in_progress_result[1] else None
+                        # No recent activity - set rate to 0
+                        stats.download_rate_per_hour = 0
                         
-                        if in_progress_count > 0 and oldest_in_progress:
-                            # Check how long items have been in progress
-                            oldest_time = datetime.strptime(oldest_in_progress, '%Y-%m-%d %H:%M:%S')
-                            stuck_minutes = (now - oldest_time).total_seconds() / 60
-                            
-                            if stuck_minutes > 10:  # Items stuck for over 10 minutes
-                                stats.downloads_stall_reason = f"{in_progress_count} items stuck in progress for {int(stuck_minutes)}m"
-                            else:
-                                stats.downloads_stall_reason = f"Processing {in_progress_count} items (slow network?)"
+                    # Check for download stalls and determine reason
+                    if completions_5min == 0 and stats.total_queue_items > stats.items_downloaded:
+                        stats.downloads_stalled = True
+                        
+                        # Try to determine why downloads are stalled
+                        # Check for CAPTCHA first
+                        if stats.captcha_backoff_active:
+                            stats.downloads_stall_reason = "CAPTCHA cooldown active"
                         else:
-                            # Check if there are any active items
-                            cursor.execute("SELECT COUNT(*) FROM download_queue WHERE status = 'active'")
-                            active_count = cursor.fetchone()[0]
+                            # Check for items stuck in progress
+                            cursor.execute("""
+                                SELECT COUNT(*), MIN(updated_at) 
+                                FROM download_queue 
+                                WHERE status = 'in_progress'
+                            """)
+                            in_progress_result = cursor.fetchone()
+                            in_progress_count = in_progress_result[0] if in_progress_result else 0
+                            oldest_in_progress = in_progress_result[1] if in_progress_result and in_progress_result[1] else None
                             
-                            if active_count == 0:
-                                stats.downloads_stall_reason = "No items in active status"
+                            if in_progress_count > 0 and oldest_in_progress:
+                                # Check how long items have been in progress
+                                oldest_time = datetime.strptime(oldest_in_progress, '%Y-%m-%d %H:%M:%S')
+                                stuck_minutes = (now - oldest_time).total_seconds() / 60
+                                
+                                if stuck_minutes > 10:  # Items stuck for over 10 minutes
+                                    stats.downloads_stall_reason = f"{in_progress_count} items stuck in progress for {int(stuck_minutes)}m"
+                                else:
+                                    stats.downloads_stall_reason = f"Processing {in_progress_count} items (slow network?)"
                             else:
-                                stats.downloads_stall_reason = "Unknown - check process logs"
-                else:
-                    stats.downloads_stalled = False
-                    stats.downloads_stall_reason = ""
-                    
-                # Get last download time
-                cursor.execute("""
-                    SELECT MAX(updated_at) 
-                    FROM download_queue 
-                    WHERE status = 'completed'
-                """)
-                last_download_result = cursor.fetchone()
-                if last_download_result and last_download_result[0]:
-                    stats.last_download_time = datetime.strptime(last_download_result[0], '%Y-%m-%d %H:%M:%S')
-                    
-                # Calculate ETA only if downloads are actually happening
-                if stats.download_rate_per_hour > 0:
-                    remaining_items = stats.total_queue_items - stats.items_downloaded
-                    hours_remaining = remaining_items / stats.download_rate_per_hour
-                    stats.estimated_download_completion = now + timedelta(hours=hours_remaining)
-                else:
-                    # Downloads stalled - no ETA
-                    stats.estimated_download_completion = None
-            
-            conn.close()
+                                # Check if there are any active items
+                                cursor.execute("SELECT COUNT(*) FROM download_queue WHERE status = 'active'")
+                                active_count = cursor.fetchone()[0]
+                                
+                                if active_count == 0:
+                                    stats.downloads_stall_reason = "No items in active status"
+                                else:
+                                    stats.downloads_stall_reason = "Unknown - check process logs"
+                    else:
+                        stats.downloads_stalled = False
+                        stats.downloads_stall_reason = ""
+                        
+                    # Get last download time
+                    cursor.execute("""
+                        SELECT MAX(updated_at) 
+                        FROM download_queue 
+                        WHERE status = 'completed'
+                    """)
+                    last_download_result = cursor.fetchone()
+                    if last_download_result and last_download_result[0]:
+                        stats.last_download_time = datetime.strptime(last_download_result[0], '%Y-%m-%d %H:%M:%S')
+                        
+                    # Calculate ETA only if downloads are actually happening
+                    if stats.download_rate_per_hour > 0:
+                        remaining_items = stats.total_queue_items - stats.items_downloaded
+                        hours_remaining = remaining_items / stats.download_rate_per_hour
+                        stats.estimated_download_completion = now + timedelta(hours=hours_remaining)
+                    else:
+                        # Downloads stalled - no ETA
+                        stats.estimated_download_completion = None
+                
             
         except Exception as e:
             # If we can't calculate from database, don't show estimates

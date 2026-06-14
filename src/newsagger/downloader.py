@@ -267,12 +267,14 @@ class DownloadProcessor:
             force_quit = True
             self.logger.info("Force quit signal received, stopping immediately...")
             # Restore default handler for immediate exit on second SIGQUIT
-            signal.signal(signal.SIGQUIT, signal.SIG_DFL)
+            if hasattr(signal, "SIGQUIT"):
+                signal.signal(signal.SIGQUIT, signal.SIG_DFL)
         
         # Register signal handlers
         signal.signal(signal.SIGINT, graceful_signal_handler)   # Ctrl+C - graceful
         signal.signal(signal.SIGTERM, graceful_signal_handler)  # Terminate - graceful  
-        signal.signal(signal.SIGQUIT, force_quit_handler)       # Ctrl+\ - immediate
+        if hasattr(signal, "SIGQUIT"):
+            signal.signal(signal.SIGQUIT, force_quit_handler)       # Ctrl+\ - immediate - not for windows
         
         self.logger.info("Starting continuous download queue processing...")
         self.logger.info(f"Will stop after {max_idle_minutes} minutes without new items")

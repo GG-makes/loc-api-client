@@ -16,43 +16,42 @@ def check_database(db_path: Path) -> dict:
         return {'exists': False}
     
     try:
-        conn = sqlite3.connect(str(db_path))
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        # Check if it has the batch discovery tables
-        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='batch_discovery_sessions'")
-        has_sessions = cursor.fetchone() is not None
-        
-        if not has_sessions:
-            conn.close()
-            return {'exists': True, 'has_batch_tables': False}
-        
-        # Get session info
-        cursor.execute("SELECT COUNT(*) as count FROM batch_discovery_sessions")
-        session_count = cursor.fetchone()[0]
-        
-        # Get page count
-        cursor.execute("SELECT COUNT(*) as count FROM pages")
-        page_count = cursor.fetchone()[0]
-        
-        # Get recent activity
-        cursor.execute("""
-            SELECT MAX(updated_at) as last_update 
-            FROM batch_discovery_sessions
-        """)
-        last_update = cursor.fetchone()[0]
-        
-        # Get active sessions
-        cursor.execute("""
-            SELECT session_name, current_batch_name, status, total_pages_discovered
-            FROM batch_discovery_sessions
-            WHERE status IN ('active', 'captcha_blocked')
-        """)
-        active_sessions = [dict(row) for row in cursor.fetchall()]
-        
-        conn.close()
-        
+        with sqlite3.connect(self.db_path, timeout=timeout) as conn:
+
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            # Check if it has the batch discovery tables
+            cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='batch_discovery_sessions'")
+            has_sessions = cursor.fetchone() is not None
+            
+            if not has_sessions:
+                conn.close()
+                return {'exists': True, 'has_batch_tables': False}
+            
+            # Get session info
+            cursor.execute("SELECT COUNT(*) as count FROM batch_discovery_sessions")
+            session_count = cursor.fetchone()[0]
+            
+            # Get page count
+            cursor.execute("SELECT COUNT(*) as count FROM pages")
+            page_count = cursor.fetchone()[0]
+            
+            # Get recent activity
+            cursor.execute("""
+                SELECT MAX(updated_at) as last_update 
+                FROM batch_discovery_sessions
+            """)
+            last_update = cursor.fetchone()[0]
+            
+            # Get active sessions
+            cursor.execute("""
+                SELECT session_name, current_batch_name, status, total_pages_discovered
+                FROM batch_discovery_sessions
+                WHERE status IN ('active', 'captcha_blocked')
+            """)
+            active_sessions = [dict(row) for row in cursor.fetchall()]
+                
         return {
             'exists': True,
             'has_batch_tables': True,

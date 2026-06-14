@@ -87,32 +87,31 @@ class BatchMapper:
         discovered_pages = []
         discovered_issues = set()
         
-        conn = sqlite3.connect(self.storage.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        for issue in metadata['issues']:
-            issue_url = issue.get('url', '').replace('https://chroniclingamerica.loc.gov', '')
-            if not issue_url.endswith('.json'):
-                issue_url += '.json'
+        with sqlite3.connect(self.storage.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
             
-            # Convert issue URL to page URL pattern for searching
-            page_url_base = issue_url.replace('.json', '')
+            for issue in metadata['issues']:
+                issue_url = issue.get('url', '').replace('https://chroniclingamerica.loc.gov', '')
+                if not issue_url.endswith('.json'):
+                    issue_url += '.json'
+                
+                # Convert issue URL to page URL pattern for searching
+                page_url_base = issue_url.replace('.json', '')
+                
+                cursor.execute("""
+                    SELECT item_id, page_url, downloaded, created_at
+                    FROM pages
+                    WHERE page_url LIKE ?
+                    ORDER BY sequence
+                """, (f"%{page_url_base}%",))
+                
+                issue_pages = cursor.fetchall()
+                
+                if issue_pages:
+                    discovered_issues.add(issue_url)
+                    discovered_pages.extend([dict(page) for page in issue_pages])
             
-            cursor.execute("""
-                SELECT item_id, page_url, downloaded, created_at
-                FROM pages
-                WHERE page_url LIKE ?
-                ORDER BY sequence
-            """, (f"%{page_url_base}%",))
-            
-            issue_pages = cursor.fetchall()
-            
-            if issue_pages:
-                discovered_issues.add(issue_url)
-                discovered_pages.extend([dict(page) for page in issue_pages])
-        
-        conn.close()
         
         # Calculate discovery percentages
         expected_issues = metadata['issue_count']
@@ -176,24 +175,24 @@ class BatchMapper:
     
     def get_session_batches(self) -> List[Dict]:
         """Get all batches from discovery sessions."""
-        conn = sqlite3.connect(self.storage.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT DISTINCT 
-                current_batch_name,
-                session_name,
-                status,
-                current_batch_index,
-                total_batches,
-                updated_at
-            FROM batch_discovery_sessions
-            WHERE current_batch_name IS NOT NULL
-            ORDER BY updated_at DESC
-        """)
-        
-        return [dict(row) for row in cursor.fetchall()]
+        with sqlite3.connect(self.storage.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT DISTINCT 
+                    current_batch_name,
+                    session_name,
+                    status,
+                    current_batch_index,
+                    total_batches,
+                    updated_at
+                FROM batch_discovery_sessions
+                WHERE current_batch_name IS NOT NULL
+                ORDER BY updated_at DESC
+            """)
+            
+            return [dict(row) for row in cursor.fetchall()]
     
     def get_all_session_batch_names(self) -> List[str]:
         """Get unique batch names from all sessions."""
@@ -211,28 +210,27 @@ class BatchMapper:
     def _infer_batches_from_pages(self) -> List[str]:
         """Infer batch names by looking at LCCNs in the pages table and matching against known batches."""
         # Get unique LCCNs from pages
-        conn = sqlite3.connect(self.storage.db_path)
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT DISTINCT 
-                substr(page_url, 
-                    instr(page_url, '/lccn/') + 6, 
-                    instr(substr(page_url, instr(page_url, '/lccn/') + 6), '/') - 1
-                ) as lccn,
-                COUNT(*) as page_count,
-                MIN(created_at) as first_seen,
-                MAX(created_at) as last_seen
-            FROM pages
-            WHERE page_url LIKE '%/lccn/%'
-            GROUP BY lccn
-            HAVING page_count > 10
-            ORDER BY first_seen DESC
-        """)
-        
-        page_lccns = [row[0] for row in cursor.fetchall() if row[0]]
-        conn.close()
-        
+        with sqlite3.connect(self.storage.db_path) as conn:
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT DISTINCT 
+                    substr(page_url, 
+                        instr(page_url, '/lccn/') + 6, 
+                        instr(substr(page_url, instr(page_url, '/lccn/') + 6), '/') - 1
+                    ) as lccn,
+                    COUNT(*) as page_count,
+                    MIN(created_at) as first_seen,
+                    MAX(created_at) as last_seen
+                FROM pages
+                WHERE page_url LIKE '%/lccn/%'
+                GROUP BY lccn
+                HAVING page_count > 10
+                ORDER BY first_seen DESC
+            """)
+            
+            page_lccns = [row[0] for row in cursor.fetchall() if row[0]]
+            
         if not page_lccns:
             return []
         
@@ -327,31 +325,32 @@ class BatchSessionTracker:
     
     def get_active_sessions(self) -> List[Dict]:
         """Get currently active batch discovery sessions."""
-        conn = sqlite3.connect(self.storage.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT * FROM batch_discovery_sessions
-            WHERE status IN ('active', 'captcha_blocked')
-            ORDER BY updated_at DESC
-        """)
-        
-        return [dict(row) for row in cursor.fetchall()]
+
+        with sqlite3.connect(self.storage.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT * FROM batch_discovery_sessions
+                WHERE status IN ('active', 'captcha_blocked')
+                ORDER BY updated_at DESC
+            """)
+            
+            return [dict(row) for row in cursor.fetchall()]
     
     def get_session_progress(self, session_name: str) -> Optional[Dict]:
         """Get detailed progress for a specific session."""
-        conn = sqlite3.connect(self.storage.db_path)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT * FROM batch_discovery_sessions
-            WHERE session_name = ?
-        """, (session_name,))
-        
-        session = cursor.fetchone()
-        conn.close()
+
+        with sqlite3.connect(self.storage.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            
+            cursor.execute("""
+                SELECT * FROM batch_discovery_sessions
+                WHERE session_name = ?
+            """, (session_name,))
+            
+            session = cursor.fetchone()
         
         if not session:
             return None

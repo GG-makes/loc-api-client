@@ -65,7 +65,7 @@ class DatabaseOperationMixin:
             WHERE {where_column} = ?
         """
         
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(str(self.db_path)) as conn:
             conn.execute(sql, params)
             conn.commit()
     
@@ -129,6 +129,6 @@ class DatabaseOperationMixin:
             WHERE {where_column} = ?
         """
         
-        with sqlite3.connect(self.db_path) as conn:
+        with sqlite3.connect(str(self.db_path)) as conn:
             conn.execute(sql, params)
             conn.commit()

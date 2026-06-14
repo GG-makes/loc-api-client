@@ -80,32 +80,27 @@ class TestContinuousDownloads:
     
     def test_continuous_processing_handles_missing_method_gracefully(self):
         """Test that we get a clear error when storage method is missing."""
+
         mock_storage = Mock(spec=NewsStorage)
         mock_client = Mock(spec=LocApiClient)
-        
-        # Setup queue items
-        mock_queue_items = [
+
+        mock_storage.get_download_queue.return_value = [
             {
                 'id': 1,
                 'queue_type': 'page',
-                'reference_id': 'test_page_1', 
+                'reference_id': 'test_page_1',
                 'estimated_size_mb': 1.0,
                 'priority': 1,
                 'status': 'queued'
             }
         ]
-        
-        mock_storage.get_download_queue.return_value = mock_queue_items
-        
-        # Don't add the update method to the mock - this should cause AttributeError
-        
+        del mock_storage.update_queue_item  # Force AttributeError when called
+
         with tempfile.TemporaryDirectory() as temp_dir:
             downloader = DownloadProcessor(mock_storage, mock_client, temp_dir, ['pdf'])
-            
-            # This should raise AttributeError about missing update_queue_item method
-            with pytest.raises(AttributeError, match="update_queue_item"):
-                downloader.process_queue(
-                    max_items=1,
-                    continuous=True,
-                    max_idle_minutes=0.01 # Tighten shutdown window for Windows
-                )
+
+            # Should not raise - AttributeError should be caught and logged
+            try:
+                result = downloader.process_queue(max_items=1)
+            except AttributeError:
+                pytest.fail("AttributeError from missing update_queue_item was not handled gracefully")

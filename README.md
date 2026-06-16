@@ -6,6 +6,48 @@ A comprehensive Python client for the Library of Congress Chronicling America AP
 
 The **LoC Chronicling America Client** provides automated workflows for large-scale newspaper archive collection from the Library of Congress's Chronicling America digital collection. Built specifically for the LoC API, it handles the complexities of rate limiting, faceted search pagination, and systematic content discovery.
 
+## Fork Maintenance Notes
+![CI](https://github.com/GG-makes/loc-api-client/actions/workflows/ci.yml/badge.svg?branch=migration-hardening)
+
+This fork contains maintenance and migration work to keep the project operational as external dependencies evolve.
+
+### Chronicling America API Migration
+
+In August 2025, the Library of Congress retired the legacy Chronicling America API endpoints used by this project and migrated search functionality to the `loc.gov` API platform.
+
+This fork is updating the discovery and ingestion workflows to support the new API:
+
+- replacing retired API endpoints
+- adapting query generation to the new API model
+- updating response parsing
+- adding migration tests and validation
+- improving maintainability through CI and documentation
+
+Detailed technical notes are available in [MIGRATION.md](MIGRATION.md).
+
+### Status
+
+🚧 Migration in progress
+
+Completed:
+- Identified legacy API dependencies
+- Investigated the impact of the API retirement on discovery workflows
+- Added Windows compatibility fixes
+- Began documenting migration decisions
+
+In progress:
+- Investigating changed API behaviour and response formats
+- Centralising query construction logic to isolate API-specific concerns
+- Expanding regression tests around discovery and ingestion workflows
+- Integrating the new query construction approach
+
+Planned:
+- Remove legacy API-specific CLI commands and obsolete code paths
+- Complete migration to the updated API
+- Validate end-to-end ingestion workflows
+
+Changes are being developed with the intention of contributing improvements upstream where appropriate.
+
 ## Key Features
 
 ### 🔍 **Automated Discovery & Queuing**

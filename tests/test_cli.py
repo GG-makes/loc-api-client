@@ -23,9 +23,9 @@ class TestCLI:
         """Set up test environment."""
         self.runner = CliRunner()
         
-    @patch('newsagger.cli.Config')
-    @patch('newsagger.cli.LocApiClient')
-    @patch('newsagger.cli.NewsDataProcessor')
+    @patch('newsagger.commands.newspaper.Config')
+    @patch('newsagger.commands.newspaper.LocApiClient')
+    @patch('newsagger.commands.newspaper.NewsDataProcessor')
     def test_list_newspapers(self, mock_processor, mock_client, mock_config):
         """Test list-newspapers command."""
         # Mock configuration

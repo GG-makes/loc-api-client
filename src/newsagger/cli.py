@@ -7,7 +7,16 @@ Provides interactive CLI for newspaper selection and download management.
 import click
 import json
 from typing import List, Dict
+import time
+from pathlib import Path
+import shutil
+from datetime import datetime
+import os
+import sqlite3
+import re
+import traceback
 from tqdm import tqdm
+
 from .config import Config
 from .rate_limited_client import LocApiClient, CaptchaHandlingException, GlobalCaptchaManager
 from .processor import NewsDataProcessor
@@ -29,7 +38,7 @@ def cli(verbose):
     config.setup_logging()
 
 
-# Register command groups
+# Register command groups - turned off until fully enabled. 
 cli.add_command(newspaper)
 
 
@@ -407,13 +416,15 @@ def estimate_facets(facet_type, rate_limit_delay, max_facets, force_reestimate):
                         estimated_items = estimate.get('total_pages', 0)
                     else:
                         # For other facet types, do a sample search
+                        #TODO: Fix bug
+                        # This passes a state name as andtext for non-date-range facets, which is semantically wrong — it's searching for the state name as text rather than filtering by state. This is a bug that ChroniclingAmericaSearchParams would expose rather than hide, since from_facet would correctly route a state facet to states rather than search_text.
+
                         sample = client.search_pages(andtext=facet['facet_value'], rows=1)
                         estimated_items = sample.get('totalItems', 0)
                     
                     # Update the facet with the new estimate
                     # We need to update the estimated_items field in the database directly
                     # since update_facet_discovery doesn't have an estimated_items parameter
-                    import sqlite3
                     with sqlite3.connect(storage.db_path) as conn:
                         conn.execute("""
                             UPDATE search_facets 
@@ -426,7 +437,6 @@ def estimate_facets(facet_type, rate_limit_delay, max_facets, force_reestimate):
                     
                     # Rate limiting delay
                     if i < total_calls - 1:  # Don't delay after last item
-                        import time
                         time.sleep(rate_limit_delay)
                 
                 except Exception as e:
@@ -473,8 +483,6 @@ def fix_wildly_inaccurate_estimates():
         return
     
     try:
-        import sqlite3
-        import time
         
         with tqdm(total=len(bad_estimates), desc="Fixing estimates") as pbar:
             for i, facet in enumerate(bad_estimates):
@@ -575,7 +583,6 @@ def auto_discover_facets(auto_enqueue, batch_size, max_items, skip_errors, timeo
     click.echo("🔍 Starting systematic facet discovery...")
     
     # Check global CAPTCHA status first
-    from newsagger.rate_limited_client import GlobalCaptchaManager
     global_captcha = GlobalCaptchaManager()
     captcha_status = global_captcha.get_status()
     
@@ -589,7 +596,6 @@ def auto_discover_facets(auto_enqueue, batch_size, max_items, skip_errors, timeo
             global_captcha.reset_state()
             click.echo("✅ CAPTCHA state reset - proceeding with discovery")
         elif captcha_status['last_captcha_time']:
-            import time
             last_captcha = time.ctime(captcha_status['last_captcha_time'])
             resume_time = captcha_status['last_captcha_time'] + (captcha_status['cooling_off_hours'] * 3600)
             remaining_minutes = (resume_time - time.time()) / 60
@@ -685,8 +691,6 @@ def auto_discover_facets(auto_enqueue, batch_size, max_items, skip_errors, timeo
                 if facet.get('status') == 'captcha_retry':
                     # Parse retry time from error message (simple approach for now)
                     error_message = facet.get('error_message', '')
-                    import time
-                    import re
                     
                     # Look for "Retry after: <timestamp>" pattern  
                     retry_match = re.search(r'Retry after: (.+?)(?:\.|\n|$)', error_message)
@@ -1176,8 +1180,6 @@ def watch_progress(interval, count):
     config = Config()
     storage = NewsStorage(**config.get_storage_config())
     
-    import time
-    
     try:
         iterations = 0
         while count == 0 or iterations < count:
@@ -1185,7 +1187,6 @@ def watch_progress(interval, count):
             click.clear()
             
             # Show current timestamp
-            from datetime import datetime
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             click.echo(f"🕐 Live Progress Monitor - {now} (refreshing every {interval}s)")
             click.echo("=" * 60)
@@ -1298,11 +1299,7 @@ def split_database(num_workers, output_dir, include_completed):
     """Split remaining work into multiple databases for distributed processing."""
     config = Config()
     storage = NewsStorage(**config.get_storage_config())
-    
-    import os
-    import shutil
-    from pathlib import Path
-    
+        
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
     
@@ -1382,7 +1379,6 @@ def split_database(num_workers, output_dir, include_completed):
     
     # Create master coordination file
     master_config_path = output_path / "master_config.json"
-    import json
     master_config = {
         "num_workers": num_workers,
         "source_database": str(storage.db_path),
@@ -1412,11 +1408,7 @@ def merge_databases(distributed_dir, dry_run):
     """Merge completed work from distributed worker databases back into master."""
     config = Config()
     master_storage = NewsStorage(**config.get_storage_config())
-    
-    from pathlib import Path
-    import json
-    import sqlite3
-    
+        
     dist_path = Path(distributed_dir)
     master_config_path = dist_path / "master_config.json"
     
@@ -1598,7 +1590,6 @@ def setup_download_workflow(start_year, end_year, states, auto_discover, auto_en
                     auto_discover = False
 
             if auto_discover:
-                import time
                 start_time = time.time()
                 total_discovered = 0
                 errors = 0
@@ -1686,7 +1677,6 @@ def setup_download_workflow(start_year, end_year, states, auto_discover, auto_en
                             click.echo(f"\n❌ ERROR on facet {facet['id']} ({facet['facet_type']} = {facet['facet_value']}):")
                             click.echo(f"   Error: {error_msg}")
                             if hasattr(e, '__traceback__'):
-                                import traceback
                                 click.echo(f"   Traceback: {traceback.format_exc()}")
                             
                             # Check for rate limiting
@@ -2076,7 +2066,6 @@ def reset_stuck_facets():
         click.echo(f"   📅 {facet['facet_value']} (ID: {facet['id']})")
     
     if click.confirm("Reset these facets to pending status?"):
-        import sqlite3
         with sqlite3.connect(storage.db_path) as conn:
             for facet in stuck_facets:
                 conn.execute("""
@@ -2322,9 +2311,7 @@ def download_priority(priority, queue_type, max_items, download_dir, file_types,
 
 @cli.command()  
 def reset_captcha_state():
-    """Reset global CAPTCHA protection state (use with caution)."""
-    from newsagger.rate_limited_client import GlobalCaptchaManager
-    
+    """Reset global CAPTCHA protection state (use with caution)."""    
     global_captcha = GlobalCaptchaManager()
     captcha_status = global_captcha.get_status()
     
@@ -2339,7 +2326,6 @@ def reset_captcha_state():
     click.echo(f"   Cooling-off period: {captcha_status['cooling_off_hours']:.1f} hours")
     
     if captcha_status['last_captcha_time']:
-        import time
         last_captcha = time.ctime(captcha_status['last_captcha_time'])
         click.echo(f"   Last CAPTCHA: {last_captcha}")
     
@@ -2387,10 +2373,7 @@ def set_conservative_mode(ultra_conservative, small_batches, micro_batches):
     click.echo(f"🐌 Setting {mode_name} mode (batch size: {batch_size})")
     click.echo(f"   This will be much slower but reduce CAPTCHA risk")
     
-    # Store the setting in a config file for other commands to use
-    import json
-    from pathlib import Path
-    
+    # Store the setting in a config file for other commands to use    
     config_file = Path("newsagger_conservative.json")
     conservative_config = {
         'mode': mode_name,
@@ -2409,8 +2392,6 @@ def set_conservative_mode(ultra_conservative, small_batches, micro_batches):
 @cli.command()
 def show_conservative_mode():
     """Show current conservative mode settings."""
-    from pathlib import Path
-    import json
     
     config_file = Path("newsagger_conservative.json")
     
@@ -2433,8 +2414,6 @@ def show_conservative_mode():
 @cli.command()
 def pause_operations():
     """Create a pause file to stop all long-running operations gracefully."""
-    from pathlib import Path
-    import json
     
     pause_file = Path("newsagger_pause.json")
     pause_config = {
@@ -2453,9 +2432,7 @@ def pause_operations():
 
 @cli.command()
 def resume_operations():
-    """Remove pause file to resume operations."""
-    from pathlib import Path
-    
+    """Remove pause file to resume operations."""    
     pause_file = Path("newsagger_pause.json")
     conservative_file = Path("newsagger_conservative.json")
     

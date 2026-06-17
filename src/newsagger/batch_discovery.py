@@ -11,6 +11,7 @@ import time
 from typing import Dict, Tuple
 from tqdm import tqdm
 
+from .config import Config
 from .rate_limited_client import CaptchaHandlingException, GlobalCaptchaManager
 
 
@@ -30,6 +31,7 @@ class BatchDiscoveryProcessor:
         self.processor = processor
         self.storage = storage
         self.logger = logging.getLogger(__name__)
+
     
     def handle_captcha_during_batch_discovery(self, e: CaptchaHandlingException, 
                                              session_name: str, batch_index: int, 
@@ -141,8 +143,8 @@ class BatchDiscoveryProcessor:
         
         try:
             # Convert issue URL to endpoint
-            if issue_url.startswith('https://chroniclingamerica.loc.gov/'):
-                issue_endpoint = issue_url.replace('https://chroniclingamerica.loc.gov/', '')
+            if issue_url.startswith(self.api_client.base_url):
+                issue_endpoint = issue_url.replace(self.api_client.base_url, '')
             else:
                 issue_endpoint = issue_url
             
@@ -390,8 +392,8 @@ class BatchDiscoveryProcessor:
                 batch_url = batch_url.rstrip('/') + '.json'
             
             # Extract endpoint from full URL
-            if batch_url.startswith('https://chroniclingamerica.loc.gov/'):
-                endpoint = batch_url.replace('https://chroniclingamerica.loc.gov/', '')
+            if batch_url.startswith(self.api_client.base_url):
+                endpoint = batch_url.replace(self.api_client.url, '')
             else:
                 endpoint = batch_url
             

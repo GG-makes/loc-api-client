@@ -1185,8 +1185,8 @@ class DiscoveryManager:
         
         try:
             # Convert issue URL to endpoint
-            if issue_url.startswith('https://chroniclingamerica.loc.gov/'):
-                issue_endpoint = issue_url.replace('https://chroniclingamerica.loc.gov/', '')
+            if issue_url.startswith(self.api_client.base_url):
+                issue_endpoint = issue_url.replace(self.api_client.base_url, '')
             else:
                 issue_endpoint = issue_url
             

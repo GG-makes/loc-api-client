@@ -92,7 +92,7 @@ class BatchMapper:
             cursor = conn.cursor()
             
             for issue in metadata['issues']:
-                issue_url = issue.get('url', '').replace('https://chroniclingamerica.loc.gov', '')
+                issue_url = issue.get('url', '').replace(self.api_client.base_url, '')
                 if not issue_url.endswith('.json'):
                     issue_url += '.json'
                 

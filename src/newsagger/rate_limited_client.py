@@ -17,6 +17,7 @@ from queue import Queue, Empty
 import atexit
 import random
 
+from .config import Config
 from .utils import retry_on_network_failure
 
 
@@ -599,6 +600,7 @@ class LocApiClient:
     def __init__(self, base_url: str = "https://chroniclingamerica.loc.gov/", 
                  request_delay: float = 3.0, max_retries: int = 3):
         # Get the singleton rate limiter
+        self.base_url = base_url
         self.rate_limiter = RateLimitedRequestManager(
             base_url=base_url,
             max_requests_per_minute=12,  # Conservative limit to avoid CAPTCHA protection
@@ -606,6 +608,8 @@ class LocApiClient:
         )
         self.logger = logging.getLogger(__name__)
         
+
+
     def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
         """Route all requests through the centralized rate limiter."""
         return self.rate_limiter._make_request(endpoint, params)

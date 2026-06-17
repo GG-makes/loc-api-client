@@ -99,6 +99,7 @@ Not yet confirmed against live API:
     - Newspaper list response (parse_newspapers)
     - Batch list/detail response
     - OCR text field name and location
+    - Whether resources[0] is consistently the cover/thumbnail entry that should be skipped 
 
 Compatibility guarantee
 -----------------------

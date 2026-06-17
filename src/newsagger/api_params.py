@@ -1,0 +1,595 @@
+"""
+Chronicling America API Parameter Construction
+
+Architecture
+------------
+ChroniclingAmericaSearchParams
+    A normalized, API-agnostic representation of search intent. Holds lists
+    where the CLI or database may supply comma-separated strings, and stores
+    values in a canonical form that both builders can translate from.
+
+QueryBuilder (ABC)
+    Abstract base class enforcing a common interface across API versions.
+    Owns two ingestion classmethods:
+
+        from_facet(facet)
+            Ingests a facet row as returned by storage.get_search_facets().
+            This method is stable API surface — it exists to allow users with
+            pre-August 2025 databases to resume their queries against either
+            API version without modifying their stored data. Do not remove or
+            change its signature.
+
+        from_cli(...)
+            Ingests raw CLI arguments. May be overridden by subclasses as CLI
+            options evolve. LegacyQueryBuilder.from_cli accepts the pre-2025
+            CLI argument shapes; LocGovQueryBuilder.from_cli may eventually
+            accept new options (e.g. OR/PHRASE operators) as those are exposed
+            in the CLI.
+
+LegacyQueryBuilder(QueryBuilder)
+    Targets: https://chroniclingamerica.loc.gov/search/pages/results/
+    Conventions: dates as MM/DD/YYYY, state as title case, andtext, format=json
+
+LocGovQueryBuilder(QueryBuilder)
+    Targets: https://www.loc.gov/collections/chronicling-america/
+    Conventions: dates as YYYY-MM-DD, state as lowercase, qs/ops, fo=json
+
+Compatibility guarantee
+-----------------------
+Users whose discovery runs were interrupted before August 4, 2025 can resume
+against the new API by changing one word at their call site:
+
+    # Before
+    LegacyQueryBuilder.from_facet(facet).build()
+
+    # After
+    LocGovQueryBuilder.from_facet(facet).build()
+
+No database migration or CLI changes are required.
+"""
+
+from abc import ABC, abstractmethod
+from datetime import datetime
+from typing import Generator, List, Literal, Optional
+
+
+# ---------------------------------------------------------------------------
+# Normalized search intent
+# ---------------------------------------------------------------------------
+
+class ChroniclingAmericaSearchParams:
+    """
+    Normalized, API-agnostic representation of a Chronicling America search.
+
+    This class holds *what* you want to search for. The QueryBuilder subclasses
+    handle *how* to express that in a specific API version's parameter format.
+
+    Do not instantiate this directly from CLI arguments or raw database values —
+    use QueryBuilder.from_cli() or QueryBuilder.from_facet() instead, which
+    normalize inputs before constructing this object.
+
+    Attributes:
+        search_text:
+            Text to search for in newspaper OCR content.
+        search_operator:
+            How to combine search terms. "AND", "OR", or "PHRASE".
+            Note: the legacy API only supports AND. This value is preserved
+            here so it survives a migration to LocGovQueryBuilder.
+        date1:
+            Start of the date range as "YYYY" or "YYYY-MM-DD".
+        date2:
+            End of the date range as "YYYY" or "YYYY-MM-DD".
+        states:
+            List of lowercase full state names, e.g. ["california", "oregon"].
+            Each builder formats these appropriately for its API version.
+        lccn:
+            LCCN to filter results to a specific newspaper title.
+        batch:
+            Digitization batch name to filter results.
+        page:
+            Page number for paginated results (1-indexed).
+        rows:
+            Results per page. Capped at 1000 by both builders.
+        sort:
+            Sort order. "date", "relevance", or "title".
+    """
+
+    def __init__(
+        self,
+        search_text: Optional[str] = None,
+        search_operator: Literal["AND", "OR", "PHRASE"] = "AND",
+        date1: Optional[str] = None,
+        date2: Optional[str] = None,
+        states: Optional[List[str]] = None,
+        lccn: Optional[str] = None,
+        batch: Optional[str] = None,
+        page: int = 1,
+        rows: int = 1000,
+        sort: Literal["date", "relevance", "title"] = "date",
+    ) -> None:
+        self.search_text = search_text
+        self.search_operator = search_operator
+        self.date1 = date1
+        self.date2 = date2
+        self.states = states or []
+        self.lccn = lccn
+        self.batch = batch
+        self.page = page
+        self.rows = rows
+        self.sort = sort
+
+    def __repr__(self) -> str:
+        return (
+            f"ChroniclingAmericaSearchParams("
+            f"search_text={self.search_text!r}, "
+            f"date1={self.date1!r}, "
+            f"date2={self.date2!r}, "
+            f"states={self.states!r}, "
+            f"page={self.page}, "
+            f"rows={self.rows}"
+            f")"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Date range splitting helper
+# ---------------------------------------------------------------------------
+
+def split_date_range(
+    params: ChroniclingAmericaSearchParams,
+    chunk_years: int = 1,
+) -> Generator[ChroniclingAmericaSearchParams, None, None]:
+    """
+    Split a wide date range into smaller ChroniclingAmericaSearchParams
+    instances to stay under the 100,000-item deep paging limit.
+
+    Yields one params instance per chunk, inheriting all other fields
+    (search_text, states, lccn, etc.) from the original.
+
+    Works with both builders — LegacyQueryBuilder will format the resulting
+    date1/date2 as MM/DD/YYYY, LocGovQueryBuilder as YYYY-MM-DD.
+
+    Args:
+        params:
+            The source params object. Must have date1 set. If date2 is not
+            set, defaults to the current year.
+        chunk_years:
+            Number of years per chunk. Defaults to 1 (one year per query).
+
+    Example:
+        params = ChroniclingAmericaSearchParams(date1="1900", date2="1920")
+        for chunk in split_date_range(params, chunk_years=1):
+            results = LocGovQueryBuilder(chunk).build()
+    """
+    if params.date1 is None:
+        raise ValueError("split_date_range requires date1 to be set")
+
+    start_year = int(params.date1[:4])
+    end_year = int(params.date2[:4]) if params.date2 else datetime.now().year
+
+    year = start_year
+    while year <= end_year:
+        chunk_end = min(year + chunk_years - 1, end_year)
+        yield ChroniclingAmericaSearchParams(
+            search_text=params.search_text,
+            search_operator=params.search_operator,
+            date1=str(year),
+            date2=str(chunk_end),
+            states=list(params.states),
+            lccn=params.lccn,
+            batch=params.batch,
+            page=params.page,
+            rows=params.rows,
+            sort=params.sort,
+        )
+        year += chunk_years
+
+
+# ---------------------------------------------------------------------------
+# Abstract base class
+# ---------------------------------------------------------------------------
+
+class QueryBuilder(ABC):
+    """
+    Abstract base class for Chronicling America API query builders.
+
+    Subclasses must implement build() and base_url.
+
+    Ingestion classmethods
+    ----------------------
+    from_facet(facet)
+        Stable API surface. Ingests a facet row from storage.get_search_facets().
+        Both subclasses inherit this unchanged. Do not alter its signature —
+        users with pre-August 2025 databases depend on it for resume capability.
+
+    from_cli(...)
+        Ingests raw CLI argument values. May be overridden by subclasses as
+        the CLI evolves. LegacyQueryBuilder provides the baseline implementation
+        matching the pre-2025 CLI argument shapes.
+    """
+
+    def __init__(self, params: ChroniclingAmericaSearchParams) -> None:
+        self.params = params
+
+    # ------------------------------------------------------------------
+    # Ingestion classmethods — shared entry points
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_facet(cls, facet: dict, **kwargs) -> "QueryBuilder":
+        """
+        Ingest a facet row as returned by storage.get_search_facets().
+
+        Stable API surface for pre-August 2025 database compatibility.
+        Handles both date_range and state facet types as stored in the
+        legacy database schema.
+
+        Args:
+            facet:
+                A dict with at minimum 'facet_type' and 'facet_value' keys,
+                as returned by storage.get_search_facets(). Additional fields
+                (estimated_items, status, etc.) are ignored.
+            **kwargs:
+                Any ChroniclingAmericaSearchParams fields to override or
+                supplement, e.g. rows=50, search_text="flood".
+
+        Facet type handling:
+            date_range: facet_value "1906/1906" → date1="1906", date2="1906"
+            state:      facet_value "California" → states=["california"]
+
+        Example:
+            # Resume a pre-migration database against the new API
+            for facet in storage.get_search_facets(status='pending'):
+                params = LocGovQueryBuilder.from_facet(facet)
+                results = params.build()
+        """
+        facet_type = facet.get("facet_type")
+        facet_value = facet.get("facet_value", "")
+
+        date1 = kwargs.pop("date1", None)
+        date2 = kwargs.pop("date2", None)
+        states = kwargs.pop("states", [])
+
+        if facet_type == "date_range" and "/" in facet_value:
+            parts = facet_value.split("/")
+            date1 = parts[0]
+            date2 = parts[1]
+
+        elif facet_type == "state":
+            states = [facet_value.lower()]
+
+        params = ChroniclingAmericaSearchParams(
+            date1=date1,
+            date2=date2,
+            states=states,
+            **kwargs,
+        )
+        return cls(params)
+
+    @classmethod
+    def from_cli(
+        cls,
+        text: Optional[str] = None,
+        date1: Optional[str] = None,
+        date2: Optional[str] = None,
+        states: Optional[str] = None,
+        rows: int = 1000,
+        page: int = 1,
+        sort: str = "date",
+        lccn: Optional[str] = None,
+        batch: Optional[str] = None,
+    ) -> "QueryBuilder":
+        """
+        Ingest raw CLI argument values.
+
+        Handles the normalization that the CLI layer produces:
+            - states as a comma-separated string e.g. "California,New York"
+              → normalized to ["california", "new york"]
+            - date1/date2 as strings (CLI may pass ints for year-only values)
+            - rows capped at 1000
+
+        This implementation matches the pre-August 2025 CLI argument shapes.
+        LocGovQueryBuilder may override this to accept new options (e.g.
+        search_operator) as those are exposed in the CLI.
+
+        Args:
+            text:       Search text (maps to --text or positional TEXT argument)
+            date1:      Start year or date (maps to --date1 or --start-year)
+            date2:      End year or date (maps to --date2 or --end-year)
+            states:     Comma-separated state names (maps to --states)
+            rows:       Results per page (maps to --batch-size or --rows)
+            page:       Page number (maps to --page)
+            sort:       Sort order (maps to --sort)
+            lccn:       LCCN filter (maps to --lccn)
+            batch:      Batch name filter (maps to --batch)
+
+        Example:
+            builder = LegacyQueryBuilder.from_cli(
+                text="earthquake",
+                date1="1906",
+                date2="1906",
+                states="California,Oregon",
+            )
+            api_params = builder.build()
+        """
+        normalized_states = []
+        if states:
+            normalized_states = [s.strip().lower() for s in states.split(",")]
+
+        params = ChroniclingAmericaSearchParams(
+            search_text=text,
+            search_operator="AND",  # legacy CLI had no operator option
+            date1=str(date1) if date1 is not None else None,
+            date2=str(date2) if date2 is not None else None,
+            states=normalized_states,
+            lccn=lccn,
+            batch=batch,
+            page=page,
+            rows=min(rows, 1000),
+            sort=sort,
+        )
+        return cls(params)
+
+    # ------------------------------------------------------------------
+    # Abstract interface
+    # ------------------------------------------------------------------
+
+    @abstractmethod
+    def build(self) -> dict:
+        """
+        Build and return the API parameter dictionary.
+
+        Returns:
+            A dict suitable for passing as query parameters to the
+            relevant Chronicling America API endpoint.
+        """
+        ...
+
+    @property
+    @abstractmethod
+    def base_url(self) -> str:
+        """The base URL for the API endpoint this builder targets."""
+        ...
+
+
+# ---------------------------------------------------------------------------
+# Legacy builder — pre-August 2025
+# ---------------------------------------------------------------------------
+
+class LegacyQueryBuilder(QueryBuilder):
+    """
+    Builds query parameters for the pre-August 2025 Chronicling America API.
+
+    Target endpoint:
+        https://chroniclingamerica.loc.gov/search/pages/results/
+
+    Key conventions:
+        - Dates formatted as MM/DD/YYYY
+        - States as title-case full names, one per request
+          (the legacy API did not support multiple states per query;
+           if multiple states are present, only the first is used)
+        - Search text via 'andtext' (AND logic only — OR/PHRASE not supported)
+        - Output format via 'format=json'
+        - LCCN and batch are not supported as direct filter parameters;
+          they are ignored by this builder
+    """
+
+    @property
+    def base_url(self) -> str:
+        return "https://chroniclingamerica.loc.gov/search/pages/results/"
+
+    def _format_date(self, date_str: str, is_end_date: bool = False) -> str:
+        """
+        Format a date string into MM/DD/YYYY for the legacy API.
+
+        Args:
+            date_str:    "YYYY" or "YYYY-MM-DD"
+            is_end_date: When True and only a year is given, uses Dec 31.
+                         When False, uses Jan 1.
+        """
+        if len(date_str) == 4 and date_str.isdigit():
+            return f"12/31/{date_str}" if is_end_date else f"01/01/{date_str}"
+        elif len(date_str) == 10 and date_str.count("-") == 2:
+            parts = date_str.split("-")
+            return f"{parts[1]}/{parts[2]}/{parts[0]}"
+        # Unrecognised format — return as-is and let the API reject it
+        return date_str
+
+    def build(self) -> dict:
+        """
+        Build legacy API parameters.
+
+        Limitations vs LocGovQueryBuilder:
+            - search_operator is ignored; legacy API is AND-only via 'andtext'
+            - Only the first state is used; multiple states require multiple requests
+            - lccn and batch filters are not supported; ignored silently
+            - dates_facet concept is gone; use split_date_range() to chunk
+              wide date ranges before calling build()
+        """
+        params: dict = {
+            "format": "json",
+            "page": self.params.page,
+            "rows": min(self.params.rows, 1000),
+            "sort": self.params.sort,
+        }
+
+        # Search text — AND only; operator field intentionally not used
+        if self.params.search_text:
+            params["andtext"] = self.params.search_text
+
+        # Date range
+        if self.params.date1 is not None:
+            params["date1"] = self._format_date(self.params.date1, is_end_date=False)
+            if self.params.date2 is not None:
+                params["date2"] = self._format_date(self.params.date2, is_end_date=True)
+            else:
+                params["date2"] = self._format_date(
+                    str(datetime.now().year), is_end_date=True
+                )
+
+        # State — title case, first entry only
+        if self.params.states:
+            if len(self.params.states) > 1:
+                # Legacy API does not support multiple states per request.
+                # Callers should iterate over states and call build() per state,
+                # or use split_date_range() in combination with a state loop.
+                pass
+            params["state"] = self.params.states[0].title()
+
+        return params
+
+
+# ---------------------------------------------------------------------------
+# Current builder — post-August 2025
+# ---------------------------------------------------------------------------
+
+class LocGovQueryBuilder(QueryBuilder):
+    """
+    Builds query parameters for the post-August 2025 loc.gov API.
+
+    Target endpoint:
+        https://www.loc.gov/collections/chronicling-america/
+
+    Key conventions:
+        - Dates as YYYY-MM-DD via 'start_date' / 'end_date'
+        - States as lowercase full names via 'location_state'
+          (multiple states require multiple requests; same as legacy)
+        - Search text via 'qs', operator via 'ops'
+        - LCCN filter via 'fa=number_lccn:{lccn}'
+        - Batch filter via 'fa=batch:{batch}'
+        - Output format via 'fo=json'
+        - Display level via 'dl=page'
+    """
+
+    @property
+    def base_url(self) -> str:
+        return "https://www.loc.gov/collections/chronicling-america/"
+
+    @classmethod
+    def from_cli(
+        cls,
+        text: Optional[str] = None,
+        operator: Literal["AND", "OR", "PHRASE"] = "AND",
+        date1: Optional[str] = None,
+        date2: Optional[str] = None,
+        states: Optional[str] = None,
+        rows: int = 1000,
+        page: int = 1,
+        sort: str = "date",
+        lccn: Optional[str] = None,
+        batch: Optional[str] = None,
+    ) -> "LocGovQueryBuilder":
+        """
+        Ingest raw CLI arguments for the new API.
+
+        Extends the base from_cli with 'operator' support, since the new
+        API accepts OR and PHRASE in addition to AND.
+        """
+        normalized_states = []
+        if states:
+            normalized_states = [s.strip().lower() for s in states.split(",")]
+
+        params = ChroniclingAmericaSearchParams(
+            search_text=text,
+            search_operator=operator,
+            date1=str(date1) if date1 is not None else None,
+            date2=str(date2) if date2 is not None else None,
+            states=normalized_states,
+            lccn=lccn,
+            batch=batch,
+            page=page,
+            rows=min(rows, 1000),
+            sort=sort,
+        )
+        return cls(params)
+
+    def _format_date(self, date_str: str, is_end_date: bool = False) -> str:
+        """
+        Format a date string into YYYY-MM-DD for the loc.gov API.
+
+        Args:
+            date_str:    "YYYY" or "YYYY-MM-DD"
+            is_end_date: When True and only a year is given, uses Dec 31.
+                         When False, uses Jan 1.
+        """
+        if len(date_str) == 4 and date_str.isdigit():
+            return f"{date_str}-12-31" if is_end_date else f"{date_str}-01-01"
+        elif len(date_str) == 10 and date_str.count("-") == 2:
+            # Already in correct format
+            return date_str
+        # Unrecognised format — return as-is and let the API reject it
+        return date_str
+
+    def _build_fa_filters(self) -> List[str]:
+        """
+        Build the list of 'fa' filter strings for the loc.gov API.
+
+        The loc.gov API accepts multiple fa= parameters, each a
+        colon-separated key:value string. The requests library encodes
+        a list value as repeated parameters: &fa=...&fa=...
+
+        Supported filters:
+            number_lccn:{lccn}  — filter by newspaper LCCN
+            batch:{batch}       — filter by digitization batch name
+        """
+        filters = []
+        if self.params.lccn:
+            filters.append(f"number_lccn:{self.params.lccn}")
+        if self.params.batch:
+            filters.append(f"batch:{self.params.batch}")
+        return filters
+
+    def build(self) -> dict:
+        """
+        Build loc.gov API parameters.
+
+        Improvements vs LegacyQueryBuilder:
+            - search_operator fully supported (AND, OR, PHRASE)
+            - lccn and batch filters supported via 'fa' parameters
+            - dates expressed directly as YYYY-MM-DD (no facet strings needed)
+
+        State handling:
+            Multiple states still require multiple requests, same as legacy.
+            Only the first state is used. Callers should loop over states.
+
+        Note:
+            'sp' is used for page number and 'c' for count, which are the
+            loc.gov API conventions. Verify these against current documentation
+            before relying on them in production.
+        """
+        params: dict = {
+            "fo": "json",
+            "dl": "page",
+            "sp": self.params.page,
+            "c": min(self.params.rows, 1000),
+        }
+
+        # Search text and operator
+        if self.params.search_text:
+            params["qs"] = self.params.search_text
+            params["ops"] = self.params.search_operator
+
+        # Date range
+        if self.params.date1 is not None:
+            params["start_date"] = self._format_date(
+                self.params.date1, is_end_date=False
+            )
+            if self.params.date2 is not None:
+                params["end_date"] = self._format_date(
+                    self.params.date2, is_end_date=True
+                )
+            else:
+                params["end_date"] = self._format_date(
+                    str(datetime.now().year), is_end_date=True
+                )
+
+        # State — lowercase, first entry only
+        if self.params.states:
+            params["location_state"] = self.params.states[0].lower()
+
+        # LCCN and batch filters
+        fa_filters = self._build_fa_filters()
+        if fa_filters:
+            params["fa"] = fa_filters
+
+        return params

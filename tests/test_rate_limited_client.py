@@ -8,7 +8,7 @@ import responses
 import requests
 from unittest.mock import Mock, patch, MagicMock
 import threading
-from src.newsagger.rate_limited_client import RateLimitedRequestManager, LocApiClient
+from src.newsagger.rate_limited_client import RateLimitedRequestManager, LocApiClient, GlobalCaptchaManager
 
 
 class TestRateLimitedRequestManager:
@@ -18,7 +18,10 @@ class TestRateLimitedRequestManager:
         """Reset the singleton before each test."""
         # Clear the singleton instance
         RateLimitedRequestManager._instance = None
-    
+        # Clear the CaptchaManager singleton instance - it is instantiated in RateLimitedRequestManager
+        GlobalCaptchaManager._instance = None
+
+
     def test_singleton_pattern(self):
         """Test that RateLimitedRequestManager is a singleton."""
         manager1 = RateLimitedRequestManager()

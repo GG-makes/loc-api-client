@@ -81,6 +81,7 @@ class TestCaptchaHandling:
         """
         mock_batches, mock_batch_details, mock_issue_details = self._make_mock_batches_and_details()
         self.mock_api_client.get_all_batches.return_value = mock_batches
+        self.mock_api_client.base_url = 'example.com'
 
         captcha_exception = CaptchaHandlingException(
             "CAPTCHA detected - global cooling-off period required",
@@ -121,6 +122,7 @@ class TestCaptchaHandling:
         """
         mock_batches, mock_batch_details, _ = self._make_mock_batches_and_details()
         self.mock_api_client.get_all_batches.return_value = mock_batches
+        self.mock_api_client.base_url = "example.com"
 
         captcha_exception = CaptchaHandlingException(
             "CAPTCHA detected - global cooling-off period required",

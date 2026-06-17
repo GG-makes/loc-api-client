@@ -393,7 +393,7 @@ class BatchDiscoveryProcessor:
             
             # Extract endpoint from full URL
             if batch_url.startswith(self.api_client.base_url):
-                endpoint = batch_url.replace(self.api_client.url, '')
+                endpoint = batch_url.replace(self.api_client.base_url, '')
             else:
                 endpoint = batch_url
             

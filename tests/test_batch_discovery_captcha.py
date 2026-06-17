@@ -24,6 +24,7 @@ class TestBatchDiscoveryCaptchaHandling:
         """Test that batch discovery resumes and completes the current batch after CAPTCHA."""
         # Setup mocks
         mock_api_client = Mock()
+        mock_api_client.base_url = "https://example.com"
         mock_processor = Mock()
         mock_storage = Mock()
         
@@ -182,6 +183,7 @@ class TestBatchDiscoveryCaptchaHandling:
         """Test that batch discovery correctly tracks which pages were discovered."""
         # Setup mocks
         mock_api_client = Mock()
+        mock_api_client.base_url = "https://example.com"
         mock_processor = Mock()
         mock_storage = Mock()
         

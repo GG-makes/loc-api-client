@@ -175,6 +175,7 @@ class TestBatchMapper:
         mock_storage = Mock(spec=NewsStorage)
         mock_storage.db_path = '/test/db.db'
         mock_client = Mock(spec=LocApiClient)
+        mock_client.base_url = r'https://chroniclingamerica.loc.gov'
         
         # Mock database
         mock_conn = MagicMock()

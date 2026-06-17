@@ -61,20 +61,78 @@ These assumptions need to be reviewed against the current `loc.gov` API.
 
 ## API Behaviour Investigation
 
-Migration work will first document differences between the legacy and current APIs.
+### Base URL and Endpoint
+ 
+| | Legacy | New |
+|---|---|---|
+| Base URL | `chroniclingamerica.loc.gov/search/pages/results/` | `www.loc.gov/collections/chronicling-america/` |
+ 
+### Parameter Mapping
+ 
+The table below documents confirmed mappings between legacy and new API parameters.
+ 
+**Direct substitutions (1:1)**
+ 
+| Legacy parameter | New parameter | Notes |
+|---|---|---|
+| `andtext=` | `qs=` | keyword search |
+| `rows=` | `c=` | results per page |
+| `page=` | `sp=` | pagination |
+| `format=json` | `fo=json` | response format |
+ 
+**Changed parameters (same purpose, different form)**
+ 
+| Legacy parameter | New parameter | Notes |
+|---|---|---|
+| `date1=YYYY` | `start_date=YYYY-MM-DD` | now requires full ISO date, not year only |
+| `date2=YYYY` | `end_date=YYYY-MM-DD` | now requires full ISO date, not year only |
+| `state=` | `location_state=` | renamed |
+| `lccn=` | `fa=number_lccn:` | moved to filter attribute pattern |
+ 
+**New parameters with no legacy equivalent**
+ 
+| New parameter | Purpose |
+|---|---|
+| `ops=` | search type: `PHRASE`, `AND`, `OR`, `~5`, `~10` |
+| `dl=` | display level: `all`, `issue`, `page` |
+| `front_pages_only=true` | filter to front pages |
+| `location_city=` | city-level location filter |
+| `location_county=` | county-level location filter |
+| `partof_title=` | filter by newspaper title name |
+| `fa=batch:` | filter by ingest batch name |
+| `subject_ethnicity=` | filter by ethnicity subject heading |
+| `searchType=Advanced` | enables advanced search mode |
+ 
+### Facets
+ 
+The legacy API used a `facet_` parameter prefix that served two roles: filtering results and returning aggregate counts per facet (e.g. result counts broken down by state or year range) in the JSON response.
+ 
+The new API handles these differently:
+ 
+- **Filtering** — facet filters are replaced by explicit parameters (`location_state=`, `start_date=`, `end_date=`) or the `fa=` filter attribute prefix (e.g. `fa=language:english`). Filtering capability is broadly preserved and in some cases expanded.
+- **Facet counts** — the new API does not return aggregate facet counts in the JSON response. Any logic that consumed these counts will need to be removed or redesigned.
+The `fa=` prefix is a general-purpose filter attribute pattern used throughout the new API. Examples: `fa=language:english`, `fa=number_lccn:sn83045462`, `fa=batch:tu_brownie_ver01`.
+ 
+### Features not carried forward
+ 
+| Legacy feature | Status |
+|---|---|
+| OpenSearch AutoSuggest (`/suggest/titles/?q=`) | no equivalent in new API |
+| Linked Data / RDF views (`.rdf` URLs) | not part of `loc.gov` API |
+| JSONP support (`callback=` parameter) | CORS only in new API |
+| Separate title search endpoint (`/search/titles/results/`) | title browsing via collection URL and LCCN filter instead |
+| `facet_subject=` subject heading filter | no direct equivalent |
+ 
+### Open API questions
+ 
+- Are there rate limits or request constraints on the `loc.gov` API not present in the legacy API?
+- Does the `fa=` filter attribute pattern support values not yet identified in documentation?
+- Which legacy `facet_` behaviours were actively used by existing workflows?
 
-Areas being investigated:
+### Parameter Mapping
 
-- supported search parameters
-- date filtering capabilities
-- pagination model
-- response schema
-- result metadata
-- collection identifiers
-- rate limits or request constraints
-
-Findings will be recorded here as migration progresses.
-
+- Library of Congress' Chronicling America API Guidance, December 18 2023 - Courtesy of the Wayback Machine: [link](https://web.archive.org/web/20231218003023/https://chroniclingamerica.loc.gov/about/api/)
+- Library of Congress' Chronicling America API Guidance, Today (June 17 2026): [link](https://libraryofcongress.github.io/data-exploration/loc.gov%20JSON%20API/Chronicling_America/README.html)
 ---
 
 # Implementation Approach
@@ -143,7 +201,7 @@ The goal is to maintain compatibility across supported development environments 
 
 - [x] Identify legacy API dependencies
 - [x] Confirm retired endpoints
-- [ ] Document replacement API behaviour
+- [x] Document replacement API behaviour
 - [ ] Identify response format differences
 
 ## Phase 2: Refactoring
@@ -185,7 +243,10 @@ This work is being developed in a fork with the intention of contributing improv
 
 Related upstream discussion:
 
-- Pull request: [link]
+- Pull Request: [Windows fixes](https://github.com/jakalope/loc-api-client/pull/2)
+- Pull Request: [Update tests for production changes since initial release
+](https://github.com/jakalope/loc-api-client/pull/3)
+- Issue: [August 4 2025 Chronicling America API Updates](https://github.com/jakalope/loc-api-client/issues/4)
 
 ---
 

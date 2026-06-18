@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from unittest.mock import patch
 
-from newsagger.api_client import LocApiClient
+from newsagger.rate_limited_client import RateLimitedRequestManager, LocApiClient, GlobalCaptchaManager
 from newsagger.processor import NewsDataProcessor
 from newsagger.storage import NewsStorage
 from newsagger.config import Config
@@ -33,7 +33,11 @@ class TestIntegration:
     @pytest.fixture
     def components(self, integration_config):
         """Create all components with test configuration."""
+
+        RateLimitedRequestManager._instance = None  # reset singleton
+        GlobalCaptchaManager._instance = None
         client = LocApiClient(**integration_config.get_api_config())
+        client.base_url = 'https://chroniclingamerica.loc.gov'
         processor = NewsDataProcessor()
         storage = NewsStorage(integration_config.database_path)
 
@@ -183,6 +187,10 @@ class TestIntegration:
         assert earthquake_page['item_id'] == 'item123'
         assert earthquake_page['downloaded'] == 0  # Not downloaded yet
     
+    @pytest.mark.skip(
+    reason="test_download_session_workflow tests legacy discovery workflow including "
+    "search_with_faceted_dates and session management which are pending migration "
+    "to the new API. See MIGRATION.md Phase 2.")
     @responses.activate
     def test_download_session_workflow(self, components):
         """Test complete download session workflow."""

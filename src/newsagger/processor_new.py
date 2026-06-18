@@ -481,6 +481,8 @@ class LegacyResponseProcessor(ResponseProcessor):
         """
         results = []
         for item in response.get('newspapers', []):
+            if not isinstance(item, dict):
+                logger.warning(f"Skipping non-dict item in parse_pages: {type(item)}")
             try:
                 place = [item['state']] if item.get('state') else item.get('place_of_publication', [])
                 results.append(NewspaperInfo(
@@ -512,6 +514,9 @@ class LegacyResponseProcessor(ResponseProcessor):
         """
         results = []
         for item in response.get('items', []):
+            if not isinstance(item, dict):
+                logger.warning(f"Skipping non-dict item in parse_pages: {type(item)}")
+                continue
             try:
                 item_id = self.strip_base_url(item.get('id', '') or item.get('url', ''))
                 item_id = item_id.strip('/').replace('.json', '')
@@ -711,6 +716,9 @@ class LocGovResponseProcessor(ResponseProcessor):
 
         results = []
         for item in items_list:
+            if not isinstance(item, dict):
+                logger.warning(f"Skipping non-dict item in parse_newspapers: {type(item)}")
+                continue
             try:
                 # number_lccn is a plain list
                 lccn_list = item.get('number_lccn', [])
@@ -836,6 +844,9 @@ class LocGovResponseProcessor(ResponseProcessor):
 
         results = []
         for item in results_list:
+            if not isinstance(item, dict):
+                logger.warning(f"Skipping non-dict item in parse_pages: {type(item)}")
+                continue
             try:
                 # id confirmed as http://www.loc.gov/resource/... for newspaper pages
                 item_id = item.get('id', '') or item.get('url', '')

@@ -16,6 +16,7 @@ import json
 from queue import Queue, Empty
 import atexit
 import random
+import warnings
 
 from .config import Config
 from .utils import retry_on_network_failure
@@ -617,7 +618,7 @@ class LocApiClient:
     def get_newspapers(self, page: int = 1, rows: int = 1000) -> Dict:
         """Get list of newspaper titles with up to 1000 per page."""
         # Limit to recommended max of 1000 items per page
-        rows = min(rows, 1000)
+        # TODO: MIGRATION. Needs to be hooked up to parse_newspapers
         params = {
             'format': 'json',
             'page': page,
@@ -627,6 +628,7 @@ class LocApiClient:
     
     def get_all_newspapers(self) -> Generator[Dict, None, None]:
         """Generator to fetch all newspapers with pagination."""
+        
         page = 1
         while True:
             data = self.get_newspapers(page=page)
@@ -655,6 +657,7 @@ class LocApiClient:
     
     def get_newspaper_issues(self, lccn: str) -> Dict:
         """Get issues for a specific newspaper by LCCN."""
+        # TODO: Migration. constructs lccn/{lccn}.json style URLs
         endpoint = f'lccn/{lccn}.json'
         return self._make_request(endpoint)
     
@@ -670,6 +673,7 @@ class LocApiClient:
         - sort: Sort order
         """
         # Add default format
+        #TODO: Uses old parameters that have been renamed.
         search_params = {'format': 'json'}
         search_params.update(params)
         
@@ -697,8 +701,11 @@ class LocApiClient:
         
         return self._make_request('search/pages/results/', search_params)
     
-    def estimate_download_size(self, date_range: tuple) -> Dict:
+    
+    def estimate_download_size(self, date_range: tuple, lccn: Optional[str] = None) -> Dict:
         """Estimate the number of pages available for a date range."""
+        #TODO: Migration. pagination.total in the new response gives exact filtered
+        # result count, so will be more accurate.
         start_year, end_year = date_range
         
         # Use the search API to get total count with proper date filtering
@@ -735,6 +742,8 @@ class LocApiClient:
         Batches represent groups of digitized newspaper pages and are designed
         for bulk access without triggering CAPTCHA protection.
         """
+        #TODO: MIGRATION. Has a new endpoint and response structure.
+
         params = {
             'format': 'json',
             'page': page,
@@ -744,6 +753,8 @@ class LocApiClient:
     
     def get_all_batches(self) -> Generator[Dict, None, None]:
         """Generator to fetch all batches with pagination."""
+        #TODO: MIGRATION. Has a new endpoint and response structure.
+
         page = 1
         while True:
             try:

@@ -100,6 +100,7 @@ class TestBatchDiscoveryCaptchaHandling:
         
         # Override the existing mock
         mock_api_client._make_request.side_effect = mock_make_request
+        mock_api_client.base_url = "example.com"
         
         # Mock processor to track pages
         def mock_process_page(page_data, issue_details):
@@ -124,6 +125,10 @@ class TestBatchDiscoveryCaptchaHandling:
         mock_storage.update_batch_discovery_session.return_value = None
         mock_storage.count_issue_pages.return_value = 0  # No existing pages
         
+        # Mock api client
+        mock_api_client = Mock()
+        mock_api_client.base_url = 'example.com'
+
         # Override the cooling-off wait time to 1 second
         with patch('newsagger.batch_discovery.time.sleep') as mock_sleep, \
              patch('newsagger.batch_discovery.GlobalCaptchaManager') as mock_captcha_manager:
@@ -140,7 +145,7 @@ class TestBatchDiscoveryCaptchaHandling:
             
             # Process the batch
             batch_discovered, batch_enqueued = discovery._process_single_batch(
-                batch_data, 0, "test_session", 0, 0, False, Mock()
+                batch_data, 0, "test_session", 0, 0, False, mock_api_client
             )
             
             # Verify CAPTCHA handling
@@ -229,9 +234,10 @@ class TestBatchDiscoveryCaptchaHandling:
         mock_storage.store_pages.side_effect = lambda pages: len(pages)
         mock_storage.get_batch_discovery_session.return_value = None
         mock_storage.count_issue_pages.return_value = 0  # No existing pages
-        
+        mock_api_client = Mock()
+        mock_api_client.base_url = 'example.com'
         # Process batch
-        discovery._process_single_batch(batch_data, 0, "test", 0, 0, False, Mock())
+        discovery._process_single_batch(batch_data, 0, "test", 0, 0, False, mock_api_client)
         
         # Verify all issues were discovered in order
         assert discovery_order == ['issue1', 'issue2', 'issue3']

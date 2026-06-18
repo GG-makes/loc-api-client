@@ -60,79 +60,198 @@ The current discovery workflow includes assumptions around:
 These assumptions need to be reviewed against the current `loc.gov` API.
 
 ## API Behaviour Investigation
+Here's the section to paste in, replacing the existing "API Behaviour Investigation" content:
+
+---
+
+## API Behaviour Investigation
+
+Investigation complete and current as of June 18, 2026. Historical responses and parameters confirmed via legacy code and the Chronicling America website accessed via the Wayback Machine. All current parameters and response structures confirmed via live API calls and LOC Jupyter notebooks, as well as official current Chronicling America guidance.
 
 ### Base URL and Endpoint
- 
+
 | | Legacy | New |
 |---|---|---|
-| Base URL | `chroniclingamerica.loc.gov/search/pages/results/` | `www.loc.gov/collections/chronicling-america/` |
- 
+| Page search | `chroniclingamerica.loc.gov/search/pages/results/` | `www.loc.gov/collections/chronicling-america/` |
+| Newspaper list | `chroniclingamerica.loc.gov/newspapers.json` | `www.loc.gov/collections/chronicling-america/titles/` |
+| Batch list | `chroniclingamerica.loc.gov/batches.json` | `www.loc.gov/collections/chronicling-america/datasets/batch-summary/` |
+
 ### Parameter Mapping
- 
-The table below documents confirmed mappings between legacy and new API parameters.
- 
+
 **Direct substitutions (1:1)**
- 
-| Legacy parameter | New parameter | Notes |
+
+| Legacy | New | Notes |
 |---|---|---|
 | `andtext=` | `qs=` | keyword search |
 | `rows=` | `c=` | results per page |
 | `page=` | `sp=` | pagination |
 | `format=json` | `fo=json` | response format |
- 
-**Changed parameters (same purpose, different form)**
- 
-| Legacy parameter | New parameter | Notes |
+
+**Changed parameters**
+
+| Legacy | New | Notes |
 |---|---|---|
-| `date1=YYYY` | `start_date=YYYY-MM-DD` | now requires full ISO date, not year only |
-| `date2=YYYY` | `end_date=YYYY-MM-DD` | now requires full ISO date, not year only |
+| `date1=YYYY` | `start_date=YYYY-MM-DD` | now requires full ISO date |
+| `date2=YYYY` | `end_date=YYYY-MM-DD` | now requires full ISO date |
 | `state=` | `location_state=` | renamed |
 | `lccn=` | `fa=number_lccn:` | moved to filter attribute pattern |
- 
+
 **New parameters with no legacy equivalent**
- 
-| New parameter | Purpose |
+
+| Parameter | Purpose |
 |---|---|
 | `ops=` | search type: `PHRASE`, `AND`, `OR`, `~5`, `~10` |
-| `dl=` | display level: `all`, `issue`, `page` |
+| `dl=` | display level: `all`, `title`, `issue`, `page` |
 | `front_pages_only=true` | filter to front pages |
-| `location_city=` | city-level location filter |
-| `location_county=` | county-level location filter |
+| `location_city=` | city-level filter |
+| `location_county=` | county-level filter |
 | `partof_title=` | filter by newspaper title name |
-| `fa=batch:` | filter by ingest batch name |
+| `fa=batch:` | filter by batch name |
 | `subject_ethnicity=` | filter by ethnicity subject heading |
-| `searchType=Advanced` | enables advanced search mode |
- 
+
+### Response Structure
+
+**Page search response**
+
+Results are nested — not at the top level:
+
+```
+response['pages'][1]['children'][0]['results']
+```
+
+Key fields per result (all confirmed):
+
+| Field | Type | Notes |
+|---|---|---|
+| `id` | string | `http://www.loc.gov/resource/sn.../YYYY-MM-DD/ed-1/?sp=N` |
+| `date` | string | already `YYYY-MM-DD` — no conversion needed |
+| `number_lccn` | list | e.g. `["sn85042345"]` |
+| `number_edition` | list | e.g. `["1"]` |
+| `partof_title` | list | newspaper title string |
+| `location_state` | list | lowercase, e.g. `["oklahoma"]` |
+| `location_city` | list | lowercase |
+| `language` | list | lowercase |
+| `batch` | list | batch name without `batch_` prefix |
+| `resources` | list | `[{"url": "...", "files": N}]` — no PDF/JP2/OCR here |
+| `description` | list | OCR text snippet (~1000 chars, not full page) |
+| `mime_type` | list | available formats |
+| `number_page` | list | zero-padded string — not reliable for sequence number |
+
+**Pagination** (confirmed):
+
+```
+response['pagination']['total']     # filtered result count
+response['pagination']['current']   # current page number
+response['pagination']['next']      # next page URL, or null
+response['pagination']['perpage']   # results per page
+```
+
+**Item detail response** (`resource/sn.../YYYY-MM-DD/ed-1/?sp=N&fo=json`)
+
+```
+response['item']['date']              # YYYY-MM-DD
+response['item']['newspaper_title']   # list
+response['item']['number_lccn']       # list
+response['item']['location_state']    # list
+response['item']['location_city']     # list
+response['item']['batch']             # list
+response['resource']['pdf']           # tile.loc.gov PDF URL
+response['resource']['image']         # tile.loc.gov JP2/IIIF URL
+response['resource']['fulltext_file'] # OCR text service URL (full text)
+response['pagination']['current']     # page sequence number
+```
+
+**Issue detail response** (`resource/sn.../YYYY-MM-DD/ed-1/?fo=json`)
+
+```
+response['item']                      # same fields as item detail
+response['resources'][0]['files']     # list of lists — one inner list per page
+```
+
+Each inner list contains file dicts keyed by `mimetype`:
+
+| Mimetype | Field | Content |
+|---|---|---|
+| `image/jp2` | `url` | JP2 image file |
+| `application/pdf` | `url` | PDF file |
+| `text/xml` | `url` | ALTO XML OCR file |
+| `image/jpeg` | `url` | thumbnail (appears twice at different sizes) |
+| `application/json` | `title` | "Image N of [newspaper title]..." |
+| `text/plain` | `fulltext_service` | OCR text service URL |
+
+**Newspaper list response** (`collections/chronicling-america/titles/?fo=json`)
+
+Results nested at:
+```
+response['pages'][2]['children'][0]['results']
+```
+
+Key fields — note mixed dict/list structure:
+
+| Field | Type | Notes |
+|---|---|---|
+| `number_lccn` | plain list | e.g. `["sn85026945"]` |
+| `title` | string | full title string |
+| `location_state` | dict | `{"label": "South Carolina", "value": "south carolina"}` |
+| `location_city` | plain list | lowercase strings |
+| `language` | dict | `{"label": "English", "value": "english"}` |
+| `partof_title` | dict | `{"label": "...", "value": "...", "url": "..."}` |
+| `number_first_issue` | dict | `{"label": "1847-03-03", "url": "..."}` — start date |
+| `number_last_issue` | dict | `{"label": "1869-09-29", "url": "..."}` — end date |
+| `number_issue_count` | dict | `{"label": "254", "value": "254"}` |
+
+**Batch list response** (`collections/chronicling-america/datasets/batch-summary/`)
+
+Static JSON endpoint. Per batch entry:
+
+```json
+{
+    "batch": "okhi_durant_ver01",
+    "archive_name": "okhi_durant_ver01.tar.bz2",
+    "ingested": "2014-11-21T20:47:33-05:00",
+    "issue_count": 211,
+    "page_count": 5241,
+    "lccns": ["sn83030214"],
+    "url": "https://chroniclingamerica.loc.gov/data/ocr/....tar.bz2"
+}
+```
+
+Note: `url` points to legacy OCR bulk download archives. The `batch` name (without `batch_` prefix) is what the `fa=batch:` search filter expects.
+
 ### Facets
- 
-The legacy API used a `facet_` parameter prefix that served two roles: filtering results and returning aggregate counts per facet (e.g. result counts broken down by state or year range) in the JSON response.
- 
-The new API handles these differently:
- 
-- **Filtering** — facet filters are replaced by explicit parameters (`location_state=`, `start_date=`, `end_date=`) or the `fa=` filter attribute prefix (e.g. `fa=language:english`). Filtering capability is broadly preserved and in some cases expanded.
-- **Facet counts** — the new API does not return aggregate facet counts in the JSON response. Any logic that consumed these counts will need to be removed or redesigned.
-The `fa=` prefix is a general-purpose filter attribute pattern used throughout the new API. Examples: `fa=language:english`, `fa=number_lccn:sn83045462`, `fa=batch:tu_brownie_ver01`.
- 
-### Features not carried forward
- 
+
+**Filtering** — legacy `facet_` parameters are replaced by explicit parameters (`location_state=`, `start_date=`, `end_date=`) or the `fa=` filter attribute prefix. Filtering capability is preserved and expanded.
+
+**Facet counts** — the new API does not return aggregate facet counts in the JSON response. Any logic consuming these counts must be removed or redesigned.
+
+### Coverage Dates
+
+| | Legacy (assumed) | New (confirmed) |
+|---|---|---|
+| Start | 1836-01-01 | 1736-08-03 |
+| End | present | 1963-11-30 |
+
+The new API covers nearly a century more history than the legacy assumption. Code that previously rejected pre-1836 dates will need updating.
+
+### Features Not Carried Forward
+
 | Legacy feature | Status |
 |---|---|
-| OpenSearch AutoSuggest (`/suggest/titles/?q=`) | no equivalent in new API |
-| Linked Data / RDF views (`.rdf` URLs) | not part of `loc.gov` API |
-| JSONP support (`callback=` parameter) | CORS only in new API |
-| Separate title search endpoint (`/search/titles/results/`) | title browsing via collection URL and LCCN filter instead |
+| OpenSearch AutoSuggest (`/suggest/titles/?q=`) | no equivalent |
+| Linked Data / RDF views | not part of `loc.gov` API |
+| JSONP support (`callback=` parameter) | CORS only |
 | `facet_subject=` subject heading filter | no direct equivalent |
- 
-### Open API questions
- 
-- Are there rate limits or request constraints on the `loc.gov` API not present in the legacy API?
-- Does the `fa=` filter attribute pattern support values not yet identified in documentation?
-- Which legacy `facet_` behaviours were actively used by existing workflows?
+| Facet aggregate counts in response | removed |
 
+### Open API Questions
+
+All identified questions have been resolved through live API investigation. No outstanding unknowns.
 ### Parameter Mapping
 
 - Library of Congress' Chronicling America API Guidance, December 18 2023 - Courtesy of the Wayback Machine: [link](https://web.archive.org/web/20231218003023/https://chroniclingamerica.loc.gov/about/api/)
-- Library of Congress' Chronicling America API Guidance, Today (June 17 2026): [link](https://libraryofcongress.github.io/data-exploration/loc.gov%20JSON%20API/Chronicling_America/README.html)
+- Library of Congress' Chronicling America API Guidance, June 17 2026: [link](https://libraryofcongress.github.io/data-exploration/loc.gov%20JSON%20API/Chronicling_America/README.html)
+- Library of Congress Jupyter Notebooks: [link](github.com/nwy/Chronicling-America-API)
+- Response testing: [link](investigate_new_response_format.py)
 ---
 
 # Implementation Approach

@@ -34,12 +34,14 @@ Completed:
 - Investigated the impact of the API retirement on discovery workflows
 - Added Windows compatibility fixes
 - Began documenting migration decisions
+- Investigated changed API behaviour and response formats
+
 
 In progress:
-- Investigating changed API behaviour and response formats
 - Centralising query construction logic to isolate API-specific concerns
 - Expanding regression tests around discovery and ingestion workflows
 - Integrating the new query construction approach
+- Integrating the new query response ingestion approach
 
 Planned:
 - Remove legacy API-specific CLI commands and obsolete code paths

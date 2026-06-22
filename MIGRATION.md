@@ -247,7 +247,7 @@ formatted to MM/DD/YEAR before submission.
 
 ANSWER: Checking the Wayback Machine's archived copy of the *Chronicling America API Guidance* leads us to *The OpenSearch Description Document*. When date1 and date2 were included,
 they are marked as *chronam* dates. Going to the archived chronam repository shows us that
-chronam accepted the dates `"01/01/1900 or 01/1900 or 1900`, aka the formats MM/DD/YEAR, MM/YEAR,
+chronam accepted the dates `01/01/1900 or 01/1900 or 1900`, aka the formats MM/DD/YEAR, MM/YEAR,
 or YEAR. These were then solrized into an integer suitable for querying a solr document.
 Format selection on the wire was paired with a dateFilterType parameter (range or
 yearRange), which told chronam which of the above formats to expect (MM/DD/YEAR or YEAR)
@@ -390,6 +390,7 @@ Related upstream discussion:
 - Pull Request: [Update tests for production changes since initial release
 ](https://github.com/jakalope/loc-api-client/pull/3)
 - Issue: [August 4 2025 Chronicling America API Updates](https://github.com/jakalope/loc-api-client/issues/4)
+- Issue: [facet_type mismatch between discovery_manager.py ('hybrid') and facet_processor.py ('combined')](https://github.com/jakalope/loc-api-client/issues/5)
 
 ---
 

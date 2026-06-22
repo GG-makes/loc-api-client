@@ -60,11 +60,6 @@ The current discovery workflow includes assumptions around:
 These assumptions need to be reviewed against the current `loc.gov` API.
 
 ## API Behaviour Investigation
-Here's the section to paste in, replacing the existing "API Behaviour Investigation" content:
-
----
-
-## API Behaviour Investigation
 
 Investigation complete and current as of June 18, 2026. Historical responses and parameters confirmed via legacy code and the Chronicling America website accessed via the Wayback Machine. All current parameters and response structures confirmed via live API calls and LOC Jupyter notebooks, as well as official current Chronicling America guidance.
 
@@ -321,11 +316,11 @@ The goal is to maintain compatibility across supported development environments 
 - [x] Identify legacy API dependencies
 - [x] Confirm retired endpoints
 - [x] Document replacement API behaviour
-- [ ] Identify response format differences
+- [x] Identify response format differences
 
 ## Phase 2: Refactoring
 
-- [ ] Introduce centralised query construction logic
+- [x] Introduce centralised query construction logic
 - [ ] Separate API-specific concerns from application workflows
 - [ ] Remove assumptions tied only to the retired API
 

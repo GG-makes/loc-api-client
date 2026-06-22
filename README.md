@@ -35,10 +35,9 @@ Completed:
 - Added Windows compatibility fixes
 - Began documenting migration decisions
 - Investigated changed API behaviour and response formats
-
+- Centralised query construction logic to isolate API-specific concerns
 
 In progress:
-- Centralising query construction logic to isolate API-specific concerns
 - Expanding regression tests around discovery and ingestion workflows
 - Integrating the new query construction approach
 - Integrating the new query response ingestion approach

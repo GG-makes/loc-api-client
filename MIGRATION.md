@@ -239,14 +239,43 @@ The new API covers nearly a century more history than the legacy assumption. Cod
 | Facet aggregate counts in response | removed |
 
 ### Open API Questions
+1) What was the date format(s) accepted by the legacy api?
+Context: The CLI accepts only 4 digit years and YYYY-MM-DD formatted dates except for searchText,
+which allows anything. However, it looks like searchText might have been the primary search
+function for the LoC. To further complicate things, it looks like dates were
+formatted to MM/DD/YEAR before submission.
 
-All identified questions have been resolved through live API investigation. No outstanding unknowns.
+ANSWER: Checking the Wayback Machine's archived copy of the *Chronicling America API Guidance* leads us to *The OpenSearch Description Document*. When date1 and date2 were included,
+they are marked as *chronam* dates. Going to the archived chronam repository shows us that
+chronam accepted the dates `"01/01/1900 or 01/1900 or 1900`, aka the formats MM/DD/YEAR, MM/YEAR,
+or YEAR. These were then solrized into an integer suitable for querying a solr document.
+Format selection on the wire was paired with a dateFilterType parameter (range or
+yearRange), which told chronam which of the above formats to expect (MM/DD/YEAR or YEAR)
+ — the date values and the filter type were never independent of each other.
+
+2) What degree of granularity in date range searches was accepted?
+
+Context: pre-migration exploratory code deals solely in 4 digit date ranges. Within the logic,
+dates appear to have been changed to January 1st (start date) or December 31st (end date) when
+submitted as part of a date range. Separately, the download_newspaper CLI command already
+documented and validated day-level dates (YYYY-MM-DD) for a single newspaper's date range,
+though it's unclear whether this was ever translated into chronam's actual MM/DD/YEAR wire format
+before submission.
+
+ANSWER: The *chronam* github supports more granular dates being accepted, but not being part
+of the design of this module. The migration has chosen as a judgement call to accept day-level
+dates as part of the pre- and post- date range construction logic, continuing the day-level
+intent already present in download_newspapere.
+
+
 ### Parameter Mapping
 
 - Library of Congress' Chronicling America API Guidance, December 18 2023 - Courtesy of the Wayback Machine: [link](https://web.archive.org/web/20231218003023/https://chroniclingamerica.loc.gov/about/api/)
 - Library of Congress' Chronicling America API Guidance, June 17 2026: [link](https://libraryofcongress.github.io/data-exploration/loc.gov%20JSON%20API/Chronicling_America/README.html)
 - Library of Congress Jupyter Notebooks: [link](github.com/nwy/Chronicling-America-API)
 - Response testing: [link](investigate_new_response_format.py)
+- Library of Congress link to OpenSearch XML document, December 20 2023 - Courtesy ofthe Wayback Machine: [link](https://web.archive.org/web/20231220131158/https://chroniclingamerica.loc.gov/search/pages/opensearch.xml)
+- chronam: [link](https://github.com/LibraryOfCongress/chronam/blob/7436a24c2cdf1e38cf2107d420be2721d35b2d32/core/index.py#L726)
 ---
 
 # Implementation Approach
@@ -370,5 +399,6 @@ Items requiring further investigation:
 
 - Which existing discovery behaviours can be preserved directly?
 - Which legacy query patterns require redesign?
+    ANSWER: dateFilterType is no longer supported. 
 - Are there new capabilities available through the `loc.gov` API that should be adopted?
 - Which legacy CLI commands no longer represent useful workflows?

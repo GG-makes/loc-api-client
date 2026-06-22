@@ -27,6 +27,12 @@ Coverage areas
 6. Multiple states and builder independence
    Only first state is used by both builders. Legacy and loc.gov output
    share no keys for the same input.
+
+7. dateFilterType / chronam date format contract
+   Confirmed against chronam's _solrize_date (see MIGRATION.md Open API
+   Questions #1/#2): both date1 and date2 as bare years -> 'yearRange',
+   dates kept unconverted; anything else -> 'range', dates formatted to
+   chronam's MM/DD/YYYY wire format.
 """
 
 import pytest
@@ -102,20 +108,30 @@ def multi_year_params():
 
 class TestLegacyCompatibility:
     """
-    Prove LegacyQueryBuilder reproduces the parameter dicts that the
-    pre-refactor api_client.py produced. Inputs mirror the old test fixtures.
+    Prove LegacyQueryBuilder reproduces chronam's documented date contract
+    (see MIGRATION.md Open API Questions #1/#2), not the pre-refactor
+    api_client.py tests' assumptions — those were found to assert behavior
+    chronam never actually had (see test_year_only_dates_formatted_as_mm_dd_yyyy
+    and test_date2_defaults_to_current_year_when_only_date1_given below).
     """
 
-    def test_year_only_dates_formatted_as_mm_dd_yyyy(self):
-        """test_search_pages asserted date1=01/01/1906, date2=12/31/1907."""
+    def test_bare_year_pair_uses_year_range_unconverted(self):
+        """
+        Both date1 and date2 as bare years -> dateFilterType='yearRange',
+        chronam expects the dates to stay as plain years (see
+        rate_limited_client.search_pages / chronam core/index.py).
+        """
         result = LegacyQueryBuilder.from_cli(date1="1906", date2="1907").build()
-        assert result["date1"] == "01/01/1906"
-        assert result["date2"] == "12/31/1907"
+        assert result["dateFilterType"] == "yearRange"
+        assert result["date1"] == "1906"
+        assert result["date2"] == "1907"
 
     def test_full_date_converted_to_mm_dd_yyyy(self):
+        """Both dates already specific -> 'range', formatted to chronam's MM/DD/YYYY."""
         result = LegacyQueryBuilder.from_cli(
             date1="1906-04-18", date2="1906-04-19"
         ).build()
+        assert result["dateFilterType"] == "range"
         assert result["date1"] == "04/18/1906"
         assert result["date2"] == "04/19/1906"
 
@@ -143,22 +159,33 @@ class TestLegacyCompatibility:
         result = LegacyQueryBuilder.from_cli(page=3).build()
         assert result["page"] == 3
 
-    def test_date2_defaults_to_current_year_when_only_date1_given(self):
-        current_year = str(datetime.now().year)
+    def test_only_date1_given_passes_through_unconverted_no_date2(self):
+        """
+        Mirrors rate_limited_client.search_pages exactly: the date-handling
+        block only runs when BOTH date1 and date2 are present. With only
+        date1, no dateFilterType is added and no date2 is synthesized —
+        the pre-refactor test asserting a 'defaults to current year'
+        fallback (test_date2_defaults_to_current_year_when_only_date1_given)
+        was found to test a fabricated behavior with no basis in the
+        production logic it claimed to mirror.
+        """
         result = LegacyQueryBuilder.from_cli(date1="1906").build()
-        assert result["date2"].endswith(current_year)
+        assert result["date1"] == "1906"
+        assert "date2" not in result
+        assert "dateFilterType" not in result
 
     def test_no_date_keys_when_neither_given(self):
         result = LegacyQueryBuilder(ChroniclingAmericaSearchParams()).build()
         assert "date1" not in result
         assert "date2" not in result
 
-    def test_from_facet_produces_correct_legacy_dates(self):
-        """test_search_pages_with_facet asserted dates=1906/1907."""
+    def test_from_facet_bare_year_pair_uses_year_range(self):
+        """facet_value '1906/1907' is a bare-year pair -> 'yearRange', unconverted."""
         facet = {"facet_type": "date_range", "facet_value": "1906/1907"}
         result = LegacyQueryBuilder.from_facet(facet).build()
-        assert result["date1"] == "01/01/1906"
-        assert result["date2"] == "12/31/1907"
+        assert result["dateFilterType"] == "yearRange"
+        assert result["date1"] == "1906"
+        assert result["date2"] == "1907"
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +206,20 @@ class TestLegacyBuilderInternals:
 
     def test_format_date_full_date(self):
         assert self.builder._format_date("1906-04-18") == "04/18/1906"
+
+    def test_format_date_non_zero_padded_iso_input(self):
+        """
+        chronam input isn't guaranteed zero-padded (e.g. CLI free-text).
+        _format_date must zero-pad month/day on output regardless of
+        input padding — a length==10 check alone would silently miss this.
+        """
+        assert self.builder._format_date("1906-4-1") == "04/01/1906"
+        assert self.builder._format_date("1906-4-18") == "04/18/1906"
+        assert self.builder._format_date("1906-11-1") == "11/01/1906"
+
+    def test_format_date_malformed_dash_input_passes_through(self):
+        """Non-digit components must not raise — fall through to passthrough."""
+        assert self.builder._format_date("1906-ab-18") == "1906-ab-18"
 
     def test_format_date_unrecognised_passthrough(self):
         assert self.builder._format_date("invalid") == "invalid"
@@ -202,6 +243,40 @@ class TestLegacyBuilderInternals:
         builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
         with pytest.raises((TypeError, AttributeError)):
             builder._format_date(None)
+
+
+class TestDateFilterType:
+    """
+    Direct coverage of _date_filter_type and its effect on build(), per
+    chronam core/index.py's `date_filter_type in ("range", "yearRange")`
+    branch. No prior test asserted dateFilterType's value directly.
+    """
+
+    def test_both_bare_years_is_year_range(self):
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder._date_filter_type("1906", "1907") == "yearRange"
+
+    def test_mixed_year_and_full_date_is_range(self):
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder._date_filter_type("1906", "1906-06-01") == "range"
+        assert builder._date_filter_type("1906-06-01", "1906") == "range"
+
+    def test_both_full_dates_is_range(self):
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder._date_filter_type("1906-06-01", "1906-06-30") == "range"
+
+    def test_build_mixed_pair_formats_only_required_field(self):
+        """
+        date1 already specific, date2 a bare year -> 'range'; date1 passes
+        through _format_date unchanged (no-op on non-year input), date2
+        gets boundary-expanded.
+        """
+        result = LegacyQueryBuilder.from_cli(
+            date1="1906-06-15", date2="1907"
+        ).build()
+        assert result["dateFilterType"] == "range"
+        assert result["date1"] == "06/15/1906"
+        assert result["date2"] == "12/31/1907"
 
 
 class TestLocGovBuilderInternals:
@@ -260,6 +335,19 @@ class TestLocGovBuilderInternals:
         builder = LocGovQueryBuilder(ChroniclingAmericaSearchParams())
         with pytest.raises((TypeError, AttributeError)):
             builder._format_date(None)
+
+    @pytest.mark.xfail(
+        reason=(
+            "Known bug: only-date1 fallback defaults end_date to "
+            "datetime.now(), but MIGRATION.md's Coverage Dates table "
+            "confirms loc.gov coverage ends 1963-11-30, not present. "
+            "Not yet fixed in LocGovQueryBuilder.build()."
+        ),
+        strict=False,
+    )
+    def test_only_date1_given_does_not_default_past_documented_coverage(self):
+        result = LocGovQueryBuilder.from_cli(date1="1906").build()
+        assert result["end_date"] <= "1963-11-30"
 
 
 # ---------------------------------------------------------------------------
@@ -332,9 +420,11 @@ class TestFromFacetCompatibility:
     """
 
     def test_date_range_facet_legacy(self, date_range_facet):
+        """facet_value '1906/1906' is a bare-year pair -> 'yearRange', unconverted."""
         result = LegacyQueryBuilder.from_facet(date_range_facet).build()
-        assert result["date1"] == "01/01/1906"
-        assert result["date2"] == "12/31/1906"
+        assert result["dateFilterType"] == "yearRange"
+        assert result["date1"] == "1906"
+        assert result["date2"] == "1906"
 
     def test_date_range_facet_locgov(self, date_range_facet):
         result = LocGovQueryBuilder.from_facet(date_range_facet).build()
@@ -374,9 +464,12 @@ class TestFromFacetCompatibility:
         assert result["rows"] == 50
 
     def test_multi_year_range_facet(self):
+        """facet_value '1900/1910' is a bare-year pair -> 'yearRange' on the legacy side."""
         facet = {"facet_type": "date_range", "facet_value": "1900/1910"}
-        assert LegacyQueryBuilder.from_facet(facet).build()["date1"] == "01/01/1900"
-        assert LegacyQueryBuilder.from_facet(facet).build()["date2"] == "12/31/1910"
+        legacy_result = LegacyQueryBuilder.from_facet(facet).build()
+        assert legacy_result["dateFilterType"] == "yearRange"
+        assert legacy_result["date1"] == "1900"
+        assert legacy_result["date2"] == "1910"
         assert LocGovQueryBuilder.from_facet(facet).build()["start_date"] == "1900-01-01"
         assert LocGovQueryBuilder.from_facet(facet).build()["end_date"] == "1910-12-31"
 
@@ -460,7 +553,7 @@ class TestSplitDateRange:
 
 class TestStatesAndBuilderIndependence:
 
-    LEGACY_ONLY_KEYS = {"format", "andtext", "state", "date1", "date2"} # row # page
+    LEGACY_ONLY_KEYS = {"format", "andtext", "state", "date1", "date2", "dateFilterType"}
     LOCGOV_ONLY_KEYS = {"fo", "qs", "ops", "location_state", "start_date", "end_date", "dl"}
 
     def test_legacy_uses_first_state_only(self):
@@ -505,3 +598,222 @@ class TestStatesAndBuilderIndependence:
         """The same params object can drive either builder."""
         assert isinstance(LegacyQueryBuilder(search_params).build(), dict)
         assert isinstance(LocGovQueryBuilder(search_params).build(), dict)
+
+
+# ---------------------------------------------------------------------------
+# 7. Full build() contract vs MIGRATION.md parameter mapping
+# ---------------------------------------------------------------------------
+
+class TestLocGovBuildContract:
+    """
+    Asserts LocGovQueryBuilder.build() produces exactly the keys/values
+    documented in MIGRATION.md's parameter mapping tables. These tests
+    exist to catch silent regressions in key names (e.g. accidentally
+    emitting 'page' instead of 'sp', or 'rows' instead of 'c') that
+    internals-only tests won't catch, since they assert on the helper
+    methods rather than the final dict.
+    """
+
+    def test_minimal_build_has_only_base_keys(self):
+        """No search/date/state/filters set — only the always-present keys."""
+        params = ChroniclingAmericaSearchParams()
+        result = LocGovQueryBuilder(params).build()
+        assert result == {
+            "fo": "json",
+            "dl": "page",
+            "sp": 1,
+            "c": 1000,
+        }
+
+    def test_direct_substitution_keys_renamed_correctly(self):
+        """andtext->qs, rows->c, page->sp, format=json->fo=json."""
+        params = ChroniclingAmericaSearchParams(
+            search_text="flood", page=3, rows=50,
+        )
+        result = LocGovQueryBuilder(params).build()
+        assert result["qs"] == "flood"
+        assert result["c"] == 50
+        assert result["sp"] == 3
+        assert result["fo"] == "json"
+        assert "andtext" not in result
+        assert "rows" not in result
+        assert "page" not in result
+        assert "format" not in result
+
+    def test_date_keys_renamed_and_iso_formatted(self):
+        """date1/date2 -> start_date/end_date, full ISO date required."""
+        params = ChroniclingAmericaSearchParams(date1="1906", date2="1907")
+        result = LocGovQueryBuilder(params).build()
+        assert result["start_date"] == "1906-01-01"
+        assert result["end_date"] == "1907-12-31"
+        assert "date1" not in result
+        assert "date2" not in result
+
+    def test_state_key_renamed_to_location_state(self):
+        """state= -> location_state=, lowercase (not title case like legacy)."""
+        params = ChroniclingAmericaSearchParams(states=["california"])
+        result = LocGovQueryBuilder(params).build()
+        assert result["location_state"] == "california"
+        assert "state" not in result
+
+    def test_lccn_moved_to_fa_filter_attribute_pattern(self):
+        """lccn= -> fa=number_lccn:{lccn}, not a direct top-level param."""
+        params = ChroniclingAmericaSearchParams(lccn="sn83045201")
+        result = LocGovQueryBuilder(params).build()
+        assert result["fa"] == ["number_lccn:sn83045201"]
+        assert "lccn" not in result
+
+    def test_operator_param_has_no_legacy_equivalent(self):
+        """ops= is new; only present when search text triggers it."""
+        params = ChroniclingAmericaSearchParams(
+            search_text="flood", search_operator="PHRASE",
+        )
+        result = LocGovQueryBuilder(params).build()
+        assert result["ops"] == "PHRASE"
+
+    def test_full_query_matches_migration_doc_example(self):
+        """
+        Composite case exercising every mapped field at once, matching
+        MIGRATION.md's documented parameter set for a typical search.
+        """
+        params = ChroniclingAmericaSearchParams(
+            search_text="earthquake",
+            search_operator="OR",
+            date1="1906",
+            date2="1906",
+            states=["california"],
+            lccn="sn83045201",
+            batch="batch_ca_goldenstate_ver01",
+            page=2,
+            rows=100,
+        )
+        result = LocGovQueryBuilder(params).build()
+        assert result == {
+            "fo": "json",
+            "dl": "page",
+            "sp": 2,
+            "c": 100,
+            "qs": "earthquake",
+            "ops": "OR",
+            "start_date": "1906-01-01",
+            "end_date": "1906-12-31",
+            "location_state": "california",
+            "fa": [
+                "number_lccn:sn83045201",
+                "batch:batch_ca_goldenstate_ver01",
+            ],
+        }
+
+
+class TestLegacyBuildContract:
+    """
+    Mirrors TestLocGovBuildContract for LegacyQueryBuilder, so a future
+    change to shared logic (e.g. a refactor that merges the two builders)
+    can't silently break the legacy key names either.
+    """
+
+    def test_minimal_build_has_only_base_keys(self):
+        params = ChroniclingAmericaSearchParams()
+        result = LegacyQueryBuilder(params).build()
+        assert result == {
+            "format": "json",
+            "page": 1,
+            "rows": 1000,
+            "sort": "date",
+        }
+
+    def test_full_query_uses_legacy_key_names(self):
+        """date1/date2 are a bare-year pair -> dateFilterType='yearRange', unconverted."""
+        params = ChroniclingAmericaSearchParams(
+            search_text="earthquake",
+            date1="1906",
+            date2="1906",
+            states=["california"],
+            page=2,
+            rows=100,
+        )
+        result = LegacyQueryBuilder(params).build()
+        assert result == {
+            "format": "json",
+            "page": 2,
+            "rows": 100,
+            "sort": "date",
+            "andtext": "earthquake",
+            "dateFilterType": "yearRange",
+            "date1": "1906",
+            "date2": "1906",
+            "state": "California",
+        }
+        # new-API-only params must never appear in legacy output
+        for key in ("qs", "ops", "start_date", "end_date", "location_state", "fa", "sp", "c", "fo", "dl"):
+            assert key not in result
+
+    def test_full_query_with_specific_dates_uses_range_and_mm_dd_yyyy(self):
+        """A non-bare-year pair exercises the other branch of the same contract."""
+        params = ChroniclingAmericaSearchParams(
+            search_text="earthquake",
+            date1="1906-04-18",
+            date2="1906-04-20",
+            states=["california"],
+            page=2,
+            rows=100,
+        )
+        result = LegacyQueryBuilder(params).build()
+        assert result == {
+            "format": "json",
+            "page": 2,
+            "rows": 100,
+            "sort": "date",
+            "andtext": "earthquake",
+            "dateFilterType": "range",
+            "date1": "04/18/1906",
+            "date2": "04/20/1906",
+            "state": "California",
+        }
+
+
+# ---------------------------------------------------------------------------
+# 8. Documented gaps — MIGRATION.md params with no implementation yet
+# ---------------------------------------------------------------------------
+
+class TestUnimplementedMigrationParameters:
+    """
+    MIGRATION.md lists these as new loc.gov parameters with no legacy
+    equivalent: front_pages_only, location_city, location_county,
+    partof_title, subject_ethnicity. None are currently exposed on
+    ChroniclingAmericaSearchParams or LocGovQueryBuilder.
+
+    These tests are intentionally xfail — they document the gap so it
+    shows up in CI output rather than being silently forgotten, and they
+    should be flipped to real assertions as each parameter is implemented.
+    """
+
+    @pytest.mark.xfail(reason="location_city not yet implemented", strict=True)
+    def test_location_city_filter(self):
+        params = ChroniclingAmericaSearchParams(location_city="oakland")
+        result = LocGovQueryBuilder(params).build()
+        assert result["location_city"] == "oakland"
+
+    @pytest.mark.xfail(reason="location_county not yet implemented", strict=True)
+    def test_location_county_filter(self):
+        params = ChroniclingAmericaSearchParams(location_county="alameda")
+        result = LocGovQueryBuilder(params).build()
+        assert result["location_county"] == "alameda"
+
+    @pytest.mark.xfail(reason="partof_title not yet implemented", strict=True)
+    def test_partof_title_filter(self):
+        params = ChroniclingAmericaSearchParams(partof_title="san francisco call")
+        result = LocGovQueryBuilder(params).build()
+        assert result["partof_title"] == "san francisco call"
+
+    @pytest.mark.xfail(reason="front_pages_only not yet implemented", strict=True)
+    def test_front_pages_only_filter(self):
+        params = ChroniclingAmericaSearchParams(front_pages_only=True)
+        result = LocGovQueryBuilder(params).build()
+        assert result["front_pages_only"] == "true"
+
+    @pytest.mark.xfail(reason="subject_ethnicity not yet implemented", strict=True)
+    def test_subject_ethnicity_filter(self):
+        params = ChroniclingAmericaSearchParams(subject_ethnicity="german")
+        result = LocGovQueryBuilder(params).build()
+        assert result["subject_ethnicity"] == "german"

@@ -207,6 +207,8 @@ class QueryBuilder(ABC):
         the CLI evolves. LegacyQueryBuilder provides the baseline implementation
         matching the pre-2025 CLI argument shapes.
     """
+    # Names of params this builder version emits that have no equivalent
+    VERSION_SPECIFIC_PARAMS: frozenset = frozenset()
 
     def __init__(self, params: ChroniclingAmericaSearchParams) -> None:
         self.params = params
@@ -355,7 +357,6 @@ class QueryBuilder(ABC):
 # ---------------------------------------------------------------------------
 # Legacy builder — pre-August 2025
 # ---------------------------------------------------------------------------
-
 class LegacyQueryBuilder(QueryBuilder):
     """
     Builds query parameters for the pre-August 2025 Chronicling America API.
@@ -364,7 +365,11 @@ class LegacyQueryBuilder(QueryBuilder):
         https://chroniclingamerica.loc.gov/search/pages/results/
 
     Key conventions:
-        - Dates formatted as MM/DD/YYYY
+        - Dates accepted by this client as "YYYY" or "YYYY-MM-DD"; submitted
+          to chronam as MM/DD/YYYY (or bare YYYY for year-pair ranges), per
+          chronam's _solrize_date contract. See MIGRATION.md Open API
+          Questions #1/#2. chronam also accepts MM/YYYY; not implemented here
+          — out of scope per migration judgement call.
         - States as title-case full names, one per request
           (the legacy API did not support multiple states per query;
            if multiple states are present, only the first is used)
@@ -373,26 +378,44 @@ class LegacyQueryBuilder(QueryBuilder):
         - LCCN and batch are not supported as direct filter parameters;
           they are ignored by this builder
     """
+    VERSION_SPECIFIC_PARAMS = frozenset({"dateFilterType"})
 
     @property
     def base_url(self) -> str:
         return "https://chroniclingamerica.loc.gov/search/pages/results/"
 
+    def _date_filter_type(self, date1: str, date2: str) -> str:
+        """
+        Tells chronam how to interpret date1/date2 (see _solrize_date).
+        'yearRange' when both are bare years; 'range' otherwise. Only
+        meaningful when both date1 and date2 are present.
+        """
+        return "yearRange" if len(date1) == 4 and len(date2) == 4 else "range"
+
     def _format_date(self, date_str: str, is_end_date: bool = False) -> str:
         """
-        Format a date string into MM/DD/YYYY for the legacy API.
+        Format a date string into chronam's MM/DD/YYYY wire format.
 
         Args:
-            date_str:    "YYYY" or "YYYY-MM-DD"
+            date_str:    "YYYY" or "YYYY-M-D"/"YYYY-MM-DD" — the two formats
+                        this client's CLI accepts (see MIGRATION.md). Month/day
+                        need not be zero-padded on input.
             is_end_date: When True and only a year is given, uses Dec 31.
-                         When False, uses Jan 1.
+                        When False, uses Jan 1.
+
+        Note this formatter is more permissive than the pre-migration logic. 
+        The old formatter only accepted 0-padded dates for conversion.
         """
         if len(date_str) == 4 and date_str.isdigit():
             return f"12/31/{date_str}" if is_end_date else f"01/01/{date_str}"
-        elif len(date_str) == 10 and date_str.count("-") == 2:
+
+        if 8 <= len(date_str) <= 10 and date_str.count("-") == 2:
             parts = date_str.split("-")
-            return f"{parts[1]}/{parts[2]}/{parts[0]}"
-        # Unrecognised format — return as-is and let the API reject it
+            if len(parts) == 3 and all(p.isdigit() for p in parts):
+                year, month, day = parts
+                return f"{month.zfill(2)}/{day.zfill(2)}/{year}"
+
+        # Unrecognised format — pass through and let chronam reject it.
         return date_str
 
     def build(self) -> dict:
@@ -413,19 +436,22 @@ class LegacyQueryBuilder(QueryBuilder):
             "sort": self.params.sort,
         }
 
-        # Search text — AND only; operator field intentionally not used
         if self.params.search_text:
             params["andtext"] = self.params.search_text
 
         # Date range
-        if self.params.date1 is not None:
-            params["date1"] = self._format_date(self.params.date1, is_end_date=False)
-            if self.params.date2 is not None:
-                params["date2"] = self._format_date(self.params.date2, is_end_date=True)
+        if self.params.date1 is not None and self.params.date2 is not None:
+            date1, date2 = self.params.date1, self.params.date2
+            filter_type = self._date_filter_type(date1, date2)
+            params["dateFilterType"] = filter_type
+            if filter_type == "yearRange":
+                params["date1"] = date1
+                params["date2"] = date2
             else:
-                params["date2"] = self._format_date(
-                    str(datetime.now().year), is_end_date=True
-                )
+                params["date1"] = self._format_date(date1, is_end_date=False)
+                params["date2"] = self._format_date(date2, is_end_date=True)
+        elif self.params.date1 is not None:
+            params["date1"] = self.params.date1
 
         # State — title case, first entry only
         if self.params.states:

@@ -133,7 +133,7 @@ class NewsStorage(DatabaseOperationMixin):
                 -- New table: Track search facets and date ranges for systematic downloading
                 CREATE TABLE IF NOT EXISTS search_facets (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    facet_type TEXT NOT NULL,  -- 'date_range', 'state', 'subject', 'language'
+                    facet_type TEXT NOT NULL,  -- 'date_range', 'state', 'combined'
                     facet_value TEXT NOT NULL, -- '1906/1906', 'California', etc.
                     facet_query TEXT,         -- Original search query that created this facet
                     estimated_items INTEGER DEFAULT 0,

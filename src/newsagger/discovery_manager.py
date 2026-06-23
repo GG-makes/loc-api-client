@@ -13,6 +13,7 @@ from .rate_limited_client import LocApiClient, CaptchaHandlingException, GlobalC
 from .batch_discovery import BatchDiscoveryProcessor
 from .processor import NewsDataProcessor
 from .storage import NewsStorage
+
 from .discovery.facet_processor import (
     FacetStatusValidator,
     FacetSearchParamsBuilder,
@@ -980,18 +981,15 @@ class DiscoveryManager:
             ]
             
             for start_year, end_year in year_ranges:
-                # Create hybrid facet with state + date constraints
-                hybrid_query = f"state:{state} AND date:[{start_year} TO {end_year}]"
+                # Create combined facet with state + date constraints
+                combined_query = f"state:{state} AND date:[{start_year} TO {end_year}]"
                 self.storage.create_search_facet(
-                    facet_type='hybrid',
-                    facet_value=f"{state}_{start_year}_{end_year}",
-                    query=hybrid_query,
+                    facet_type='combined',
+                    facet_value=f"state:{state}|date_range:{start_year}/{end_year}",
+                    query=combined_query,
                     estimated_items=facet.get('estimated_items', 0) // len(year_ranges),
                     priority=facet.get('priority', 5) - 1
-                )
-                splits_created += 1
-                self.logger.info(f"Created hybrid state-date facet: {state} {start_year}-{end_year}")
-        
+                )        
         # Mark original facet as split
         self.storage.update_facet_discovery(
             facet_id,

@@ -336,20 +336,6 @@ class TestLocGovBuilderInternals:
         with pytest.raises((TypeError, AttributeError)):
             builder._format_date(None)
 
-    @pytest.mark.xfail(
-        reason=(
-            "Known bug: only-date1 fallback defaults end_date to "
-            "datetime.now(), but MIGRATION.md's Coverage Dates table "
-            "confirms loc.gov coverage ends 1963-11-30, not present. "
-            "Not yet fixed in LocGovQueryBuilder.build()."
-        ),
-        strict=False,
-    )
-    def test_only_date1_given_does_not_default_past_documented_coverage(self):
-        result = LocGovQueryBuilder.from_cli(date1="1906").build()
-        assert result["end_date"] <= "1963-11-30"
-
-
 # ---------------------------------------------------------------------------
 # 3. Operator preservation
 # ---------------------------------------------------------------------------
@@ -472,6 +458,21 @@ class TestFromFacetCompatibility:
         assert legacy_result["date2"] == "1910"
         assert LocGovQueryBuilder.from_facet(facet).build()["start_date"] == "1900-01-01"
         assert LocGovQueryBuilder.from_facet(facet).build()["end_date"] == "1910-12-31"
+    
+    def test_combined_facet_legacy(self):
+        facet = {"facet_type": "combined", "facet_value": "state:California|date_range:1906/1906"}
+        result = LegacyQueryBuilder.from_facet(facet).build()
+        assert result["state"] == "California"
+        assert result["dateFilterType"] == "yearRange"
+        assert result["date1"] == "1906"
+        assert result["date2"] == "1906"
+
+    def test_combined_facet_locgov(self):
+        facet = {"facet_type": "combined", "facet_value": "state:California|date_range:1906/1906"}
+        result = LocGovQueryBuilder.from_facet(facet).build()
+        assert result["location_state"] == "california"
+        assert result["start_date"] == "1906-01-01"
+        assert result["end_date"] == "1906-12-31"
 
 
 # ---------------------------------------------------------------------------

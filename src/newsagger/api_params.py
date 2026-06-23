@@ -238,6 +238,7 @@ class QueryBuilder(ABC):
         Facet type handling:
             date_range: facet_value "1906/1906" → date1="1906", date2="1906"
             state:      facet_value "California" → states=["california"]
+            combined:   facet_value "state:California|date_range:1906/1906" → states=["california"], date1="1906", date2="1906"
 
         Example:
             # Resume a pre-migration database against the new API
@@ -259,6 +260,16 @@ class QueryBuilder(ABC):
 
         elif facet_type == "state":
             states = [facet_value.lower()]
+
+        elif facet_type == "combined" and "|" in facet_value:
+            for part in facet_value.split("|"):
+                if ":" not in part:
+                    continue
+                key, value = part.split(":", 1)
+                if key == "state":
+                    states = [value.lower()]
+                elif key == "date_range" and "/" in value:
+                    date1, date2 = value.split("/")
 
         params = ChroniclingAmericaSearchParams(
             date1=date1,

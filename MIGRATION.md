@@ -104,6 +104,19 @@ Investigation complete and current as of June 18, 2026. Historical responses and
 | `fa=batch:` | filter by batch name |
 | `subject_ethnicity=` | filter by ethnicity subject heading |
 
+### Estimate / Count Mechanism
+
+| | Legacy | New (loc.gov) |
+|---|---|---|
+| Request | `rows=1&page=1` | `c=1&at=search,results,pagination` |
+| Count field | `response['totalItems']` | `response['pagination']['total']` |
+| Accuracy | Best-effort estimate | Exact filtered result count |
+| Granularity exercised | Bare year ranges only (the only shape `estimate_download_size` was ever called with) | Any combination `LocGovQueryBuilder` supports (date/state/lccn/batch) |
+| lccn filtering | Accepted as a parameter by `estimate_download_size` but never actually added to the request — a pre-existing no-op, not introduced by this migration. Should only have affected the `download_newspaper --estimate-only` cli command - no other. | Fully supported via `fa=number_lccn:` |
+
+Source: `at=`/`pagination.total` mechanism confirmed via
+[investigate_new_response_format.py](investigate_new_response_format.py).
+
 ### Response Structure
 
 **Page search response**

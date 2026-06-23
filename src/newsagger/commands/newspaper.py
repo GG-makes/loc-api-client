@@ -12,6 +12,7 @@ from ..config import Config
 from ..rate_limited_client import LocApiClient, CaptchaHandlingException, GlobalCaptchaManager
 from ..processor import NewsDataProcessor
 from ..storage import NewsStorage
+from ..api_params import LocGovQueryBuilder
 
 
 @click.group()
@@ -110,58 +111,55 @@ def download_newspaper(lccn, date1, date2, estimate_only):
     client = LocApiClient(**config.get_api_config())
     processor = NewsDataProcessor()
     storage = NewsStorage(**config.get_storage_config())
-    
+
     # Validate date range
     if not processor.validate_date_range(date1, date2 or str(config.current_year)):
         click.echo("❌ Invalid date range")
         return
-    
+
     # Get estimate
     estimate = client.estimate_download_size((date1, date2), lccn)
-    
+    estimated_size_gb = estimate['estimated_size_mb'] / 1024
+    estimated_time_hours = estimate['total_pages'] / 1000  # rough: ~1000 pages/hr at rate limit
+
     click.echo(f"📊 Download Estimate for {lccn}:")
     click.echo(f"   Total pages: {estimate['total_pages']:,}")
-    click.echo(f"   Estimated size: {estimate['estimated_size_gb']} GB")
-    click.echo(f"   Estimated time: {estimate['estimated_time_hours']:.1f} hours")
-    
+    click.echo(f"   Estimated size: {estimated_size_gb:.2f} GB")
+    click.echo(f"   Estimated time: {estimated_time_hours:.1f} hours")
+
     if estimate_only:
         return
-    
+
     if estimate['total_pages'] > 10000:
         if not click.confirm(f"This will download {estimate['total_pages']:,} pages. Continue?"):
             return
-    
+
     # Create download session
     session_id = storage.create_download_session(
         f"{lccn}_{date1}_{date2}",
         {'lccn': lccn, 'date1': date1, 'date2': date2},
         estimate['total_pages']
     )
-    
+
     # Start download with faceted search
-    base_query = {
-        'andtext': f'lccn:{lccn}',
-        'date1': date1,
-        'date2': date2
-    }
-    
+    builder = LocGovQueryBuilder.from_cli(date1=date1, date2=date2, lccn=lccn)
+
     total_downloaded = 0
-    
+
     with tqdm(total=estimate['total_pages'], desc="Downloading pages") as pbar:
-        for result_batch in client.search_with_faceted_dates(base_query):
+        for result_batch in client.paginate_search(builder):
             pages = processor.process_search_response(result_batch)
             stored = storage.store_pages(pages)
-            
+
             total_downloaded += stored
             pbar.update(stored)
-            
+
             # Update session progress
             storage.update_session_progress(session_id, total_downloaded)
-    
+
     # Complete session
     storage.complete_session(session_id)
     click.echo(f"✅ Downloaded {total_downloaded:,} pages")
-
 
 # The existing tests is against the function 'status' in cli.py, so turning this
 # off for now. Note this is part of a separate cli update by the author

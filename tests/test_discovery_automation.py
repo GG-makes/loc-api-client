@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from newsagger.discovery_manager import DiscoveryManager
 from newsagger.storage import NewsStorage
-from newsagger.api_client import LocApiClient
+from newsagger.rate_limited_client import LocApiClient #TODO: replace with ratelimitedclient
 from newsagger.processor import NewsDataProcessor
 
 

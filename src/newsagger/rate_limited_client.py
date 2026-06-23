@@ -661,6 +661,7 @@ class LocApiClient:
         endpoint = f'lccn/{lccn}.json'
         return self._make_request(endpoint)
     
+    #TODO: dateFilterType is legacy construction only
     def search_pages(self, **params) -> Dict:
         """
         Search newspaper pages with various parameters.
@@ -701,7 +702,22 @@ class LocApiClient:
         
         return self._make_request('search/pages/results/', search_params)
     
-    
+    def paginate_search(client, builder) -> Generator[Dict, None, None]:
+        """
+        Walks all pages of a LocGovQueryBuilder query, yielding each response.
+        Replaces the missing search_with_faceted_dates (only ever existed on
+        the deprecated api_client.LocApiClient).
+        #TODO: Check this againist processor_new's response
+        """
+        params = builder.build()
+        while True:
+            response = client.search_pages(**params)
+            yield response
+            next_url = response.get("pagination", {}).get("next")
+            if not next_url:
+                break
+            params["sp"] = params.get("sp", 1) + 1
+
     def estimate_download_size(self, date_range: tuple, lccn: Optional[str] = None) -> Dict:
         """Estimate the number of pages available for a date range."""
         #TODO: Migration. pagination.total in the new response gives exact filtered

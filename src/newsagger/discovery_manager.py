@@ -442,6 +442,7 @@ class DiscoveryManager:
                 try:
                     self.logger.debug(f"Searching facet {facet_id} page {discovery_context.current_page} with params: {search_params}")
                     self.logger.debug(f"About to call search_pages for facet {facet_id}")
+                    #TODO: Needs replacement
                     response = self.api_client.search_pages(**search_params)
                     self.logger.debug(f"Got API response for facet {facet_id}, processing...")
                     pages = self.processor.process_search_response(response, deduplicate=True)
@@ -990,6 +991,9 @@ class DiscoveryManager:
                     estimated_items=facet.get('estimated_items', 0) // len(year_ranges),
                     priority=facet.get('priority', 5) - 1
                 )        
+                splits_created += 1
+                self.logger.info(f"Created combined state-date facet: state:{state}|{start_year}/{end_year}")
+
         # Mark original facet as split
         self.storage.update_facet_discovery(
             facet_id,

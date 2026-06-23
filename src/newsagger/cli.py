@@ -23,6 +23,7 @@ from .processor import NewsDataProcessor
 from .storage import NewsStorage
 from .discovery_manager import DiscoveryManager
 from .downloader import DownloadProcessor
+from .api_params import LocGovQueryBuilder # From migration
 
 # Import command modules
 from .commands.newspaper import newspaper
@@ -53,35 +54,20 @@ def search_text(text, date1, date2, limit):
     client = LocApiClient(**config.get_api_config())
     processor = NewsDataProcessor()
     
-    base_query = {
-        'andtext': text,
-        'date1': date1,
-        'date2': date2,
-        'rows': min(limit, 1000)
-    }
-    
+    builder = LocGovQueryBuilder.from_cli(text=text, date1=date1, date2=date2, rows=limit)
+
     click.echo(f"🔍 Searching for '{text}' from {date1} to {date2 or 'present'}...")
-    
+
     total_results = 0
-    
+
     with tqdm(desc="Searching") as pbar:
-        for result_batch in client.search_with_faceted_dates(base_query, max_results_per_facet=limit):
+        for result_batch in client.paginate_search(builder):
             pages = processor.process_search_response(result_batch)
-            
-            for page in pages:
-                click.echo(f"📰 {page.title} - {page.date}")
-                click.echo(f"   URL: {page.page_url}")
-                click.echo()
-                
-                total_results += 1
-                pbar.update(1)
-                
-                if total_results >= limit:
-                    break
-            
-            if total_results >= limit:
-                break
-    
+            stored = len(pages)
+            total_results += stored
+            pbar.update(stored)
+
+
     click.echo(f"Found {total_results} results")
 
 
@@ -418,7 +404,7 @@ def estimate_facets(facet_type, rate_limit_delay, max_facets, force_reestimate):
                         # For other facet types, do a sample search
                         #TODO: Fix bug
                         # This passes a state name as andtext for non-date-range facets, which is semantically wrong — it's searching for the state name as text rather than filtering by state. This is a bug that ChroniclingAmericaSearchParams would expose rather than hide, since from_facet would correctly route a state facet to states rather than search_text.
-
+                        #TODO: needs replacement with LocGov searchpages
                         sample = client.search_pages(andtext=facet['facet_value'], rows=1)
                         estimated_items = sample.get('totalItems', 0)
                     

@@ -13,7 +13,7 @@ from pathlib import Path
 from datetime import datetime
 from .processor import NewspaperInfo, PageInfo
 from .utils import DatabaseOperationMixin
-
+from contextlib import contextmanager
 
 class NewsStorage(DatabaseOperationMixin):
     """SQLite-based storage for news archive data."""
@@ -23,6 +23,21 @@ class NewsStorage(DatabaseOperationMixin):
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self.logger = logging.getLogger(__name__)
         self._init_database()
+    
+    @contextmanager
+    def _connect(self):
+        """
+        Like sqlite3.connect()'s context manager, but actually closes the
+        connection on exit. sqlite3.Connection's __exit__ only commits/rolls
+        back the transaction — it never releases the file handle, which is
+        flaky on Windows (teardown can race the connection's GC-driven close).
+        """
+        conn = sqlite3.connect(str(self.db_path))
+        try:
+            with conn:
+                yield conn
+        finally:
+            conn.close()
     
     def _migrate_database(self, conn):
         """Add new columns for enhanced batch-level resume functionality."""
@@ -57,11 +72,11 @@ class NewsStorage(DatabaseOperationMixin):
     
     def _get_connection(self):
         """Get a database connection for context manager usage."""
-        return sqlite3.connect(str(self.db_path))
+        return self._connect()
     
     def _init_database(self):
         """Initialize database tables."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             # Check and add new columns for batch-level resume functionality
             self._migrate_database(conn)
             
@@ -222,7 +237,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def store_newspapers(self, newspapers: List[NewspaperInfo]) -> int:
         """Store newspaper metadata, return number of new records."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             inserted = 0
             for newspaper in newspapers:
                 try:
@@ -251,7 +266,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def has_issue_pages(self, lccn: str, date: str, edition: int = 1) -> bool:
         """Check if we already have pages for a specific issue."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             cursor = conn.execute("""
                 SELECT COUNT(*) FROM pages 
                 WHERE lccn = ? AND date = ? AND edition = ?
@@ -261,7 +276,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def count_issue_pages(self, lccn: str, date: str, edition: int = 1) -> int:
         """Count how many pages we have for a specific issue."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             cursor = conn.execute("""
                 SELECT COUNT(*) FROM pages 
                 WHERE lccn = ? AND date = ? AND edition = ?
@@ -270,7 +285,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def store_pages(self, pages: List[PageInfo]) -> int:
         """Store page metadata, return number of new records."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             inserted = 0
             for page in pages:
                 try:
@@ -301,7 +316,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def get_newspapers(self, state: str = None, language: str = None) -> List[Dict]:
         """Retrieve newspapers with optional filtering."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             
             query = "SELECT * FROM newspapers"
@@ -327,7 +342,7 @@ class NewsStorage(DatabaseOperationMixin):
     def get_pages(self, lccn: str = None, date_range: Tuple[str, str] = None, 
                   downloaded_only: bool = False, limit: int = None) -> List[Dict]:
         """Retrieve pages with optional filtering."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             
             query = "SELECT * FROM pages"
@@ -359,13 +374,13 @@ class NewsStorage(DatabaseOperationMixin):
     
     def mark_page_downloaded(self, item_id: str):
         """Mark a page as downloaded."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.execute("UPDATE pages SET downloaded = TRUE WHERE item_id = ?", (item_id,))
             conn.commit()
     
     def get_page_by_item_id(self, item_id: str) -> Dict:
         """Get a single page by item_id."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("SELECT * FROM pages WHERE item_id = ?", (item_id,))
             row = cursor.fetchone()
@@ -374,7 +389,7 @@ class NewsStorage(DatabaseOperationMixin):
     def create_download_session(self, session_name: str, query_params: Dict, 
                               total_expected: int) -> int:
         """Create a new download session."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             cursor = conn.execute("""
                 INSERT INTO download_sessions (session_name, query_params, total_expected)
                 VALUES (?, ?, ?)
@@ -384,7 +399,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def update_session_progress(self, session_id: int, downloaded_count: int):
         """Update download session progress."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.execute("""
                 UPDATE download_sessions 
                 SET total_downloaded = ? 
@@ -394,7 +409,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def complete_session(self, session_id: int):
         """Mark download session as completed."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.execute("""
                 UPDATE download_sessions 
                 SET status = 'completed', completed_at = CURRENT_TIMESTAMP 
@@ -404,7 +419,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def get_session_stats(self, session_id: int) -> Optional[Dict]:
         """Get download session statistics."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT * FROM download_sessions WHERE id = ?
@@ -414,7 +429,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def get_storage_stats(self) -> Dict:
         """Get overall storage statistics."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             stats = {}
             
             # Count newspapers
@@ -442,7 +457,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def store_periodicals(self, periodicals: List[Dict]) -> int:
         """Store periodical metadata for tracking discovery and download progress."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             inserted = 0
             for periodical in periodicals:
                 try:
@@ -473,7 +488,7 @@ class NewsStorage(DatabaseOperationMixin):
     def get_periodicals(self, state: str = None, discovery_complete: bool = None, 
                        download_complete: bool = None) -> List[Dict]:
         """Get periodicals with optional filtering."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             
             query = "SELECT * FROM periodicals"
@@ -519,7 +534,7 @@ class NewsStorage(DatabaseOperationMixin):
     def update_periodical_download(self, lccn: str, issues_downloaded: int = None, 
                                  complete: bool = False):
         """Update periodical download progress."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             updates = ["updated_at = CURRENT_TIMESTAMP"]
             params = []
             
@@ -546,7 +561,7 @@ class NewsStorage(DatabaseOperationMixin):
                           facet_query: str = None, estimated_items: int = 0) -> int:
         #TODO: There is a double commit here that could be fixed. This is a logic issue however, not a connection issue.
         """Create a new search facet for tracking."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             try:
                 cursor = conn.execute("""
                     INSERT INTO search_facets 
@@ -566,7 +581,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def get_search_facets(self, facet_type: str = None, status = None) -> List[Dict]:
         """Get search facets with optional filtering."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             
             query = "SELECT * FROM search_facets"
@@ -601,7 +616,7 @@ class NewsStorage(DatabaseOperationMixin):
                              error_message: str = None, current_page: int = None, 
                              batch_size: int = None):
         """Update facet discovery progress with batch-level tracking."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             updates = ["updated_at = CURRENT_TIMESTAMP"]
             params = []
             
@@ -651,7 +666,7 @@ class NewsStorage(DatabaseOperationMixin):
     def update_facet_download(self, facet_id: int, items_downloaded: int = None, 
                             status: str = None, error_message: str = None):
         """Update facet download progress."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             updates = ["updated_at = CURRENT_TIMESTAMP"]
             params = []
             
@@ -686,7 +701,7 @@ class NewsStorage(DatabaseOperationMixin):
     def store_periodical_issue(self, lccn: str, issue_date: str, edition_count: int = 0, 
                              pages_count: int = 0, issue_url: str = None) -> int:
         """Store information about a specific newspaper issue."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             try:
                 cursor = conn.execute("""
                     INSERT INTO periodical_issues 
@@ -715,7 +730,7 @@ class NewsStorage(DatabaseOperationMixin):
     def get_periodical_issues(self, lccn: str = None, date_range: Tuple[str, str] = None, 
                             discovery_complete: bool = None) -> List[Dict]:
         """Get periodical issues with optional filtering."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             
             query = "SELECT * FROM periodical_issues"
@@ -746,7 +761,7 @@ class NewsStorage(DatabaseOperationMixin):
                             pages_downloaded: int = None, discovery_complete: bool = None,
                             download_complete: bool = None):
         """Update progress for a specific newspaper issue."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             updates = ["updated_at = CURRENT_TIMESTAMP"]
             params = []
             
@@ -781,7 +796,7 @@ class NewsStorage(DatabaseOperationMixin):
                             priority: int = 5, estimated_size_mb: int = 0, 
                             estimated_time_hours: float = 0) -> int:
         """Add item to download queue."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             cursor = conn.execute("""
                 INSERT INTO download_queue 
                 (queue_type, reference_id, priority, estimated_size_mb, estimated_time_hours)
@@ -792,7 +807,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def get_download_queue(self, status: str = None, limit: int = None) -> List[Dict]:
         """Get download queue items, ordered by priority."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             
             query = "SELECT * FROM download_queue"
@@ -814,7 +829,7 @@ class NewsStorage(DatabaseOperationMixin):
     def update_queue_item(self, queue_id: int, status: str = None, 
                          progress_percent: float = None, error_message: str = None):
         """Update download queue item status."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             updates = ["updated_at = CURRENT_TIMESTAMP"]
             params = []
             
@@ -847,7 +862,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def get_queue_item_by_reference(self, reference_id: str) -> Optional[Dict]:
         """Check if an item is already in the download queue."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT * FROM download_queue 
@@ -862,7 +877,7 @@ class NewsStorage(DatabaseOperationMixin):
         Atomically store pages and add them to download queue in a single transaction.
         Returns (pages_stored, pages_enqueued).
         """
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             stored_count = 0
             enqueued_count = 0
             
@@ -930,7 +945,7 @@ class NewsStorage(DatabaseOperationMixin):
     def create_batch_discovery_session(self, session_name: str, total_batches: int, 
                                      auto_enqueue: bool = False) -> int:
         """Create a new batch discovery session for tracking progress."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             cursor = conn.execute("""
                 INSERT OR REPLACE INTO batch_discovery_sessions 
                 (session_name, total_batches, auto_enqueue, status)
@@ -941,7 +956,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def get_batch_discovery_session(self, session_name: str) -> Optional[Dict]:
         """Get existing batch discovery session for resume."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("""
                 SELECT * FROM batch_discovery_sessions 
@@ -961,7 +976,7 @@ class NewsStorage(DatabaseOperationMixin):
                                      pages_enqueued_delta: int = 0,
                                      status: str = None):
         """Update batch discovery session progress."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             updates = ["updated_at = CURRENT_TIMESTAMP"]
             params = []
             
@@ -1012,7 +1027,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def get_discovery_stats(self) -> Dict:
         """Get comprehensive discovery and download statistics."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             stats = {}
             
             # Periodical stats
@@ -1082,7 +1097,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def get_search_facet(self, facet_id: int) -> Optional[Dict]:
         """Get a specific search facet by ID."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             # Ensure migrations are applied for this connection
             self._migrate_database(conn)
             
@@ -1132,7 +1147,7 @@ class NewsStorage(DatabaseOperationMixin):
         """Get pages discovered for a specific facet."""
         # For now, this is a simple implementation
         # In a real system, you'd want to track which facet discovered which pages
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             cursor = conn.cursor()
             
             if downloaded is None:
@@ -1170,7 +1185,7 @@ class NewsStorage(DatabaseOperationMixin):
     
     def get_download_queue_stats(self) -> Dict:
         """Get statistics about the download queue."""
-        with sqlite3.connect(str(self.db_path)) as conn:
+        with self._connect() as conn:
             cursor = conn.cursor()
             
             # Get counts by status

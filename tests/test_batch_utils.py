@@ -12,6 +12,9 @@ import tempfile
 import sqlite3
 from pathlib import Path
 import sys
+import gc
+import time
+from pathlib import Path
 
 # Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
@@ -393,13 +396,16 @@ class TestBatchSessionTracker:
 
 class TestBatchUtilsIntegration:
     """Integration tests for batch utilities."""
-    
+        
     def test_batch_mapper_full_workflow(self):
         """Test full BatchMapper workflow with mocked components."""
         with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as tmp_db:
+            db_path = tmp_db.name
+
+        try:
             # Create storage
-            storage = NewsStorage(tmp_db.name)
-            
+            storage = NewsStorage(db_path)
+
             # Mock API client
             mock_client = Mock(spec=LocApiClient)
             mock_client._make_request.return_value = {
@@ -409,18 +415,28 @@ class TestBatchUtilsIntegration:
                     {'url': 'https://chroniclingamerica.loc.gov/lccn/sn12345678/1900-01-01/ed-1.json'}
                 ]
             }
-            
+
             mapper = BatchMapper(storage, mock_client)
-            
+
             # Test getting metadata
             metadata = mapper.get_batch_metadata('test_batch')
             assert metadata['name'] == 'test_batch'
             assert 'sn12345678' in metadata['lccns']
-            
+
             # Test LCCN mapping
             mapping = mapper.get_lccn_to_batch_mapping(['test_batch'])
             assert mapping['sn12345678'] == 'test_batch'
 
+            del storage
+            gc.collect()
+        finally:
+            for _ in range(10):
+                try:
+                    Path(db_path).unlink(missing_ok=True)
+                    break
+                except PermissionError:
+                    time.sleep(0.1)
 
+                    
 if __name__ == '__main__':
     pytest.main([__file__, '-v'])

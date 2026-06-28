@@ -7,6 +7,8 @@ import tempfile
 import sqlite3
 from pathlib import Path
 from unittest.mock import Mock
+import gc
+import time
 
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
@@ -21,15 +23,18 @@ def temp_db():
     """Create a temporary database for testing."""
     with tempfile.NamedTemporaryFile(suffix='.db', delete=False) as f:
         db_path = f.name
-    
+
     yield db_path
-    
-    # Cleanup
-    import gc
+
+    # Cleanup - retry loop needed on Windows where SQLite releases locks asynchronously
     gc.collect()
 
-    Path(db_path).unlink(missing_ok=True)
-
+    for _ in range(10):
+        try:
+            Path(db_path).unlink(missing_ok=True)
+            break
+        except PermissionError:
+            time.sleep(0.1)
 
 @pytest.fixture
 def storage(temp_db):

@@ -7,6 +7,10 @@ import sqlite3
 import json
 import tempfile
 from pathlib import Path
+from contextlib import closing
+import shutil
+import gc
+import time
 
 from newsagger.storage import NewsStorage
 from newsagger.processor import NewspaperInfo, PageInfo
@@ -23,7 +27,7 @@ class TestNewsStorage:
         assert Path(temp_db).exists()
         
         # Check that tables exist
-        with sqlite3.connect(temp_db) as conn:
+        with closing(sqlite3.connect(temp_db)) as conn:
             cursor = conn.execute("""
                 SELECT name FROM sqlite_master 
                 WHERE type='table' AND name IN ('newspapers', 'pages', 'download_sessions')
@@ -38,7 +42,7 @@ class TestNewsStorage:
         """Test that storage initialization creates database indices."""
         storage = NewsStorage(temp_db)
         
-        with sqlite3.connect(temp_db) as conn:
+        with closing(sqlite3.connect(temp_db)) as conn:
             cursor = conn.execute("""
                 SELECT name FROM sqlite_master 
                 WHERE type='index' AND name LIKE 'idx_%'
@@ -59,7 +63,7 @@ class TestNewsStorage:
         assert inserted == 1
         
         # Verify data was stored correctly
-        with sqlite3.connect(storage.db_path) as conn:
+        with closing(sqlite3.connect(storage.db_path)) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("SELECT * FROM newspapers WHERE lccn = ?", (newspaper.lccn,))
             row = cursor.fetchone()
@@ -80,7 +84,7 @@ class TestNewsStorage:
         storage.store_newspapers([newspaper])
         
         # Should only have one record
-        with sqlite3.connect(storage.db_path) as conn:
+        with closing(sqlite3.connect(storage.db_path)) as conn:
             cursor = conn.execute("SELECT COUNT(*) FROM newspapers WHERE lccn = ?", (newspaper.lccn,))
             count = cursor.fetchone()[0]
         
@@ -96,7 +100,7 @@ class TestNewsStorage:
         assert inserted == 1
         
         # Verify data was stored correctly
-        with sqlite3.connect(storage.db_path) as conn:
+        with closing(sqlite3.connect(storage.db_path)) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("SELECT * FROM pages WHERE item_id = ?", (page.item_id,))
             row = cursor.fetchone()
@@ -269,7 +273,7 @@ class TestNewsStorage:
         assert isinstance(session_id, int)
         
         # Verify session was created
-        with sqlite3.connect(storage.db_path) as conn:
+        with closing(sqlite3.connect(storage.db_path)) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("SELECT * FROM download_sessions WHERE id = ?", (session_id,))
             row = cursor.fetchone()
@@ -288,7 +292,7 @@ class TestNewsStorage:
         storage.update_session_progress(session_id, 250)
         
         # Verify update
-        with sqlite3.connect(storage.db_path) as conn:
+        with closing(sqlite3.connect(storage.db_path)) as conn:
             cursor = conn.execute(
                 "SELECT total_downloaded FROM download_sessions WHERE id = ?", 
                 (session_id,)
@@ -304,7 +308,7 @@ class TestNewsStorage:
         storage.complete_session(session_id)
         
         # Verify completion
-        with sqlite3.connect(storage.db_path) as conn:
+        with closing(sqlite3.connect(storage.db_path)) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute("SELECT * FROM download_sessions WHERE id = ?", (session_id,))
             row = cursor.fetchone()
@@ -379,27 +383,36 @@ class TestNewsStorage:
         # This should work fine
         inserted = storage.store_newspapers(newspapers)
         assert inserted == 1
-    
+        
     def test_database_path_creation(self):
         """Test that database directory is created if it doesn't exist."""
-        with tempfile.TemporaryDirectory() as temp_dir:
+
+        temp_dir = tempfile.mkdtemp()
+        try:
             # Use a path with nested directories that definitely doesn't exist
             nested_path = Path(temp_dir) / 'nested' / 'path' / 'test.db'
-            
+
             # Directory shouldn't exist initially
             assert not nested_path.parent.exists()
-            
+
             # Creating storage should create the directory
             storage = NewsStorage(str(nested_path))
-            
+
             assert nested_path.parent.exists()
             assert nested_path.exists()
 
-            # cleanup barrier for windows 
+            # cleanup barrier for windows
             del storage
-            import gc
             gc.collect()
-    
+            
+        finally:
+            for _ in range(10):
+                try:
+                    shutil.rmtree(temp_dir)
+                    break
+                except PermissionError:
+                    time.sleep(0.1)
+                        
     def test_get_search_facet(self, storage):
         """Test getting a specific search facet by ID."""
         # Create a test facet
@@ -639,8 +652,7 @@ class TestNewsStorage:
         assert storage.db_path is not None
         
         # Test that tables exist using proper connection management
-        import sqlite3
-        with sqlite3.connect(storage.db_path) as conn:
+        with closing(sqlite3.connect(storage.db_path)) as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")
             tables = [row[0] for row in cursor.fetchall()]

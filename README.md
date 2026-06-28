@@ -36,6 +36,7 @@ Completed:
 - Began documenting migration decisions
 - Investigated changed API behaviour and response formats
 - Centralised query construction logic to isolate API-specific concerns
+- Centralised response-handling logic to isolate API-specific concerns
 
 In progress:
 - Expanding regression tests around discovery and ingestion workflows

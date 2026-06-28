@@ -230,10 +230,10 @@ the request returns HTTP 403 with a Cloudflare bot-challenge page
 ```python
 requests.get(url, headers={"User-Agent": "..."})              # -> 403, Cloudflare challenge
 requests.get(url, headers={"User-Agent": "..."}, params={"fo": "json"})  # -> 200, real JSON
-
+```
 The batch list itself is nested under the datasets key. 2959 entries as 
 of June 28, 2026.
-
+```
 Confirmed per-entry fields:
 {
     "batch": "okhi_durant_ver01",
@@ -251,6 +251,7 @@ Confirmed per-entry fields:
     "url": "https://chroniclingamerica.loc.gov/data/ocr/....tar.bz2",
     "verified": "..."
 }
+```
 
 archive_created, batch_file, identifier, metadata_key, sha256,
 size, verified were not previously documented. Exact value types/formats
@@ -268,6 +269,22 @@ at= does not scope this endpoint the way it does for page search —
 at=results/at=data return an empty dict under that key. The at=
 response-trimming trick (see Estimate/Count Mechanism above) appears
 specific to the search endpoint, not this one.
+
+### Newspaper Issues Listing
+
+Legacy `get_newspaper_issues(lccn)` → `chroniclingamerica.loc.gov/lccn/{lccn}.json`,
+returning `{'issues': [...]}`.
+
+**loc.gov has no equivalent dedicated endpoint.** Confirmed live (2026-06-28):
+issue listing is the *same* search/collection endpoint already used for page
+search, with `dl=issue` instead of `dl=page`, filtered by `fa=number_lccn:`:
+
+```python
+requests.get(
+    "https://www.loc.gov/collections/chronicling-america/",
+    params={"fo": "json", "fa": f"number_lccn:{lccn}", "dl": "issue", "c": 10},
+)
+```
 
 ### Facets
 
@@ -330,7 +347,7 @@ intent already present in download_newspapere.
 - Library of Congress' Chronicling America API Guidance, June 17 2026: [link](https://libraryofcongress.github.io/data-exploration/loc.gov%20JSON%20API/Chronicling_America/README.html)
 - Library of Congress Jupyter Notebooks: [link](github.com/nwy/Chronicling-America-API)
 - Response testing: [link](investigate_new_response_format.py)
-- Library of Congress link to OpenSearch XML document, December 20 2023 - Courtesy ofthe Wayback Machine: [link](https://web.archive.org/web/20231220131158/https://chroniclingamerica.loc.gov/search/pages/opensearch.xml)
+- Library of Congress link to OpenSearch XML document, December 20 2023 - Courtesy of the Wayback Machine: [link](https://web.archive.org/web/20231220131158/https://chroniclingamerica.loc.gov/search/pages/opensearch.xml)
 - chronam: [link](https://github.com/LibraryOfCongress/chronam/blob/7436a24c2cdf1e38cf2107d420be2721d35b2d32/core/index.py#L726)
 - Batch Response Testing: [link](investigate_new_batch_metadata.py)
 
@@ -406,8 +423,9 @@ The goal is to maintain compatibility across supported development environments 
 ## Phase 2: Refactoring
 
 - [x] Introduce centralised query construction logic
-- [ ] Separate API-specific concerns from application workflows
 - [ ] Remove assumptions tied only to the retired API
+- [ ] Separate API-specific query concerns from application workflows
+- [ ] Separate API-specific response handling concerns from application workflows
 
 ## Phase 3: Validation
 

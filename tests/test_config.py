@@ -318,3 +318,13 @@ class TestConfig:
             config = Config()
             assert config.loc_base_url == expected_url
             assert config.query_builder_class is expected_builder
+
+    def test_get_querybuilder_config(self):
+        """Test getting the active QueryBuilder class config."""
+        with patch.dict(os.environ, {'API_VERSION': 'LOC_2026'}):
+            config = Config()
+            qb_config = config.get_querybuilder_config()
+
+        assert set(qb_config.keys()) == {'query_builder_class'}
+        assert qb_config['query_builder_class'] is config.query_builder_class
+        assert qb_config['query_builder_class'] is LocGovQueryBuilder

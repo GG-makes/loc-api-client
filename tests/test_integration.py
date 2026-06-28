@@ -13,7 +13,7 @@ from newsagger.rate_limited_client import RateLimitedRequestManager, LocApiClien
 from newsagger.processor import NewsDataProcessor
 from newsagger.storage import NewsStorage
 from newsagger.config import Config
-
+from newsagger.api_params import LegacyQueryBuilder, ChroniclingAmericaSearchParams
 
 class TestIntegration:
     """Integration tests for combined components."""
@@ -254,16 +254,19 @@ class TestIntegration:
         
         # Execute download session workflow
         # 1. Get estimate
-        estimate = client.estimate_download_size(('1906', '1906'), 'sn84038012')
-        assert estimate['total_pages'] >= 100  # The estimation algorithm may add a small buffer
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams(
+            date1='1906', date2='1906', lccn='sn84038012'
+        ))
+        total_pages = client.get_count(builder)
+        assert total_pages >= 100  # The estimation algorithm may add a small buffer
         
         # 2. Create download session
         session_id = storage.create_download_session(
             'test_session',
             {'lccn': 'sn84038012', 'date1': '1906', 'date2': '1906'},
-            estimate['total_pages']
-        )
-        
+            total_pages
+
+        )        
         # 3. Simulate download process
         base_query = {'andtext': 'lccn:sn84038012', 'date1': '1906', 'date2': '1906'}
         total_downloaded = 0

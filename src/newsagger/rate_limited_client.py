@@ -680,9 +680,6 @@ class LocApiClient:
         Note this is a temporary update to solve an immediate bug, 
         and not consistent with the migration refactor. 
         """
-        if 'fo' in params:
-            return self._make_request('search/pages/results/', params)
-
         # Add default format
         #TODO: Uses old parameters that have been renamed.
         search_params = {'format': 'json'}
@@ -705,59 +702,42 @@ class LocApiClient:
                 search_params['dateFilterType'] = 'range'
 
         return self._make_request('search/pages/results/', search_params)
-    
+        
     def paginate_search(self, builder) -> Generator[Dict, None, None]:
         """
-        Walks all pages of a LocGovQueryBuilder query, yielding each response.
-        Replaces the missing search_with_faceted_dates (only ever existed on
-        the deprecated api_client.LocApiClient).
-        #TODO: Check this againist processor_new's response
+        Walks all pages of a query, yielding each response. Replaces the
+        missing search_with_faceted_dates (only ever existed on the deprecated
+        api_client.LocApiClient).
         """
-        params = builder.build()
         while True:
-            response = self.search_pages(**params)
+            response = self.search(builder)
             yield response
             next_url = response.get("pagination", {}).get("next")
             if not next_url:
                 break
-            params["sp"] = params.get("sp", 1) + 1
+            builder.params.page += 1
 
-    def estimate_download_size(self, date_range: tuple, lccn: Optional[str] = None) -> Dict:
-        """Estimate the number of pages available for a date range."""
-        #TODO: Migration. pagination.total in the new response gives exact filtered
-        # result count, so will be more accurate.
-        start_year, end_year = date_range
-        
-        # Use the search API to get total count with proper date filtering
-        params = {
-            'date1': str(start_year),
-            'date2': str(end_year),
-            'dateFilterType': 'yearRange',  # Use yearRange for year-based searches
-            'rows': 1,  # Minimal results, we just want the total
-            'page': 1
-        }
-        
-        try:
-            response = self.search_pages(**params)
-            total_pages = response.get('totalItems', 0)
-            
-            return {
-                'total_pages': total_pages,
-                'estimated_size_mb': total_pages * 2,  # Rough estimate: 2MB per page
-                'date_range': f"{start_year}-{end_year}"
-            }
-        except Exception as e:
-            self.logger.warning(f"Failed to estimate size for {start_year}-{end_year}: {e}")
-            return {
-                'total_pages': 0,
-                'estimated_size_mb': 0,
-                'date_range': f"{start_year}-{end_year}",
-                'error': str(e)
-            }
-    
     def get_all_batches(self, builder) -> Generator[Dict, None, None]:
         yield from builder.fetch_all_batches(self._make_request)
     
     def get_request_stats(self) -> Dict:
         """Get rate limiting statistics."""
         return self.rate_limiter.get_request_stats()
+    
+    def search(self, builder) -> Dict:
+        """
+        Issue a search request fully described by the builder — no inference.
+        Replaces ad hoc search_pages(**raw_kwargs) calls for any code that
+        already has (or can construct) a QueryBuilder.
+        """
+        return self._make_request(builder.base_url, builder.build())
+
+    def get_count(self, builder) -> int:
+        """
+        Minimal count-only request via the builder. Legacy reports counts via
+        response['totalItems']; loc.gov via response['pagination']['total'].
+        """
+        response = self._make_request(builder.base_url, builder.build_count_only())
+        if 'pagination' in response:
+            return response['pagination'].get('total', 0)
+        return response.get('totalItems', 0)

@@ -640,3 +640,20 @@ class TestDiscoveryAutomation:
             assert queue_count >= 0
             # Should have made calls to add items to queue
             assert mock_add_queue.call_count >= 2
+
+    def test_create_date_range_facets_with_estimation_uses_query_builder(self):
+        """
+        create_date_range_facets(estimate_items=True) now goes through
+        self.query_builder_class + self.api_client.get_count(), not the
+        retired estimate_download_size. The only prior test used
+        estimate_items=False — this path had zero coverage before.
+        """
+        self.mock_api_client.get_count.return_value = 250
+
+        facet_ids = self.discovery.create_date_range_facets(
+            2000, 2000, facet_size_years=1, estimate_items=True
+        )
+
+        assert self.mock_api_client.get_count.called
+        builder_passed = self.mock_api_client.get_count.call_args[0][0]
+        assert isinstance(builder_passed, self.discovery.query_builder_class)

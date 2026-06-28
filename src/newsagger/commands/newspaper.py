@@ -118,7 +118,15 @@ def download_newspaper(lccn, date1, date2, estimate_only):
         return
 
     # Get estimate
-    estimate = client.estimate_download_size((date1, date2), lccn)
+    
+    
+    builder = config.query_builder_class.from_cli(date1=date1, date2=date2, lccn=lccn)
+    total_pages = client.get_count(builder)
+    estimate = {
+        'total_pages': total_pages,
+        'estimated_size_mb': total_pages * 2,  # same rough estimate estimate_download_size used
+        'date_range': f"{date1}-{date2}",
+    }
     estimated_size_gb = estimate['estimated_size_mb'] / 1024
     estimated_time_hours = estimate['total_pages'] / 1000  # rough: ~1000 pages/hr at rate limit
 

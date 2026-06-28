@@ -9,7 +9,7 @@ import requests
 from unittest.mock import Mock, patch, MagicMock
 import threading
 from src.newsagger.rate_limited_client import RateLimitedRequestManager, LocApiClient, GlobalCaptchaManager
-
+from src.newsagger.api_params import LegacyQueryBuilder, ChroniclingAmericaSearchParams
 
 class TestRateLimitedRequestManager:
     """Test cases for RateLimitedRequestManager."""
@@ -224,62 +224,80 @@ class TestLocApiClient:
         # Since we're using get_newspaper_issues, check for issues structure
         assert 'issues' in result
         assert len(result['issues']) == 1
-    
-    def test_date_parameter_handling(self):
-        """Test date parameter handling in search."""
-        client = LocApiClient()
-        
-        # The rate_limited_client handles dates differently - it uses dateFilterType
-        # Test that year-only dates use yearRange filter type
-        with patch.object(client, '_make_request') as mock_request:
-            mock_request.return_value = {'items': []}
             
-            client.search_pages(date1='1906', date2='1906')
-            
-            # Check that the call was made with proper parameters
-            mock_request.assert_called_once()
-            # Get both positional and keyword arguments
-            call_args, call_kwargs = mock_request.call_args
-            
-            # The second positional argument should be the params dict
-            params = call_args[1] if len(call_args) > 1 else call_kwargs
-            
-            # The search_pages method should add dateFilterType for year-only dates
-            assert 'dateFilterType' in params
-            assert params['dateFilterType'] == 'yearRange'
-            assert params['date1'] == '1906'
-            assert params['date2'] == '1906'
-    
     @responses.activate
-    def test_estimate_download_size_no_results(self):
-        """Test download size estimation with no results."""
+    def test_get_count_no_results(self):
+        """Test count retrieval with no results."""
         responses.add(
             responses.GET,
             'https://chroniclingamerica.loc.gov/search/pages/results/',
-            json={'items': []},
+            json={'totalItems': 0},
             status=200
         )
-        
+
         client = LocApiClient()
-        estimate = client.estimate_download_size(('1906', '1906'))
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams(date1='1906', date2='1906'))
+        assert client.get_count(builder) == 0
         
-        assert estimate['total_pages'] == 0
-        assert estimate['estimated_size_mb'] == 0
-        assert estimate['date_range'] == '1906-1906'
-    
-    @responses.activate 
-    def test_estimate_download_size_with_results(self):
-        """Test download size estimation with sample results."""
+    @responses.activate
+    def test_get_count_with_results(self):
+        """Test count retrieval with results."""
         responses.add(
             responses.GET,
             'https://chroniclingamerica.loc.gov/search/pages/results/',
-            json={'items': [{'id': f'item{i}'} for i in range(50)], 'totalItems': 50},
+            json={'totalItems': 50},
             status=200
         )
-        
+
         client = LocApiClient()
-        estimate = client.estimate_download_size(('1906', '1906'))
-        
-        assert estimate['total_pages'] == 50
-        assert estimate['estimated_size_mb'] == 100  # 50 * 2MB per page
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams(date1='1906', date2='1906'))
+        assert client.get_count(builder) == 50
     
+class TestGetAllBatchesAndCount:
+    """get_all_batches/get_count delegate to the builder; build nothing themselves."""
+
+    def setup_method(self):
+        RateLimitedRequestManager._instance = None
+
+    def test_get_all_batches_delegates_to_builder(self):
+        client = LocApiClient()
+        fake_builder = Mock()
+        fake_builder.fetch_all_batches.return_value = iter([{'batch': 'a'}, {'batch': 'b'}])
+
+        result = list(client.get_all_batches(fake_builder))
+
+        fake_builder.fetch_all_batches.assert_called_once_with(client._make_request)
+        assert result == [{'batch': 'a'}, {'batch': 'b'}]
+
+    def test_get_count_reads_totalitems_for_legacy_shaped_response(self):
+        client = LocApiClient()
+        fake_builder = Mock()
+        fake_builder.base_url = 'https://example.com/search/'
+        fake_builder.build_count_only.return_value = {'format': 'json', 'rows': 1, 'page': 1}
+        client._make_request = Mock(return_value={'totalItems': 42})
+
+        assert client.get_count(fake_builder) == 42
+        client._make_request.assert_called_once_with('https://example.com/search/', {'format': 'json', 'rows': 1, 'page': 1})
+
+    def test_get_count_reads_pagination_total_for_locgov_shaped_response(self):
+        client = LocApiClient()
+        fake_builder = Mock()
+        fake_builder.base_url = 'https://example.com/search/'
+        fake_builder.build_count_only.return_value = {'fo': 'json', 'c': 1}
+        client._make_request = Mock(return_value={'pagination': {'total': 99}})
+
+        assert client.get_count(fake_builder) == 99
+
+
+class TestSearchPagesEndpointSelection:
+    """search_pages routes loc.gov-shaped params to base_url directly, legacy-shaped to the sub-path."""
+
+    def setup_method(self):
+        RateLimitedRequestManager._instance = None
+
+    def test_legacy_shaped_params_use_search_pages_results_endpoint(self):
+        client = LocApiClient()
+        client._make_request = Mock(return_value={})
+        client.search_pages(andtext='flood')
+        args, _ = client._make_request.call_args
+        assert args[0] == 'search/pages/results/'

@@ -13,7 +13,7 @@ from .rate_limited_client import LocApiClient, CaptchaHandlingException, GlobalC
 from .batch_discovery import BatchDiscoveryProcessor
 from .processor import NewsDataProcessor
 from .storage import NewsStorage
-
+from .api_params import ChroniclingAmericaSearchParams
 from .discovery.facet_processor import (
     FacetStatusValidator,
     FacetSearchParamsBuilder,
@@ -194,18 +194,19 @@ class DiscoveryManager:
                 estimated_items = 0
                 if estimate_items:
                     try:
-                        estimate = self.api_client.estimate_download_size((str(year), str(facet_end_year)))
-                        estimated_items = estimate.get('total_pages', 0)
-                        
+                        params = ChroniclingAmericaSearchParams(date1=str(year), date2=str(facet_end_year))
+                        builder = self.query_builder_class(params)
+                        estimated_items = self.api_client.get_count(builder)
+
                         # Add extra delay to avoid rate limiting
                         if rate_limit_delay and created_count < (total_facets - skipped_count - 1):
                             import time
                             time.sleep(rate_limit_delay)
-                            
+
                     except Exception as e:
                         self.logger.warning(f"Failed to estimate items for {facet_value}: {e}")
                         estimated_items = 0
-                
+                                            
                 # Create and immediately save the facet
                 try:
                     facet_id = self.storage.create_search_facet(

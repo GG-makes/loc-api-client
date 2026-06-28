@@ -818,3 +818,96 @@ class TestUnimplementedMigrationParameters:
         params = ChroniclingAmericaSearchParams(subject_ethnicity="german")
         result = LocGovQueryBuilder(params).build()
         assert result["subject_ethnicity"] == "german"
+
+class TestBatchListing:
+    """build_batch_list, fetch_all_batches, and the batch/newspaper endpoint properties."""
+
+    def test_legacy_batch_list_url(self):
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder.batch_list_url == "https://chroniclingamerica.loc.gov/batches.json"
+
+    def test_locgov_batch_list_url(self):
+        builder = LocGovQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder.batch_list_url == "https://www.loc.gov/collections/chronicling-america/datasets/batch-summary/"
+
+    def test_legacy_newspaper_list_url(self):
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder.newspaper_list_url == "https://chroniclingamerica.loc.gov/newspapers.json"
+
+    def test_locgov_newspaper_list_url(self):
+        builder = LocGovQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder.newspaper_list_url == "https://www.loc.gov/collections/chronicling-america/titles/"
+
+    def test_legacy_batch_list_response_key(self):
+        assert LegacyQueryBuilder.batch_list_response_key == 'batches'
+
+    def test_locgov_batch_list_response_key(self):
+        assert LocGovQueryBuilder.batch_list_response_key == 'datasets'
+
+    def test_legacy_build_batch_list_params(self):
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder.build_batch_list(page=2, rows=50) == {
+            'format': 'json', 'page': 2, 'rows': 50,
+        }
+
+    def test_legacy_build_batch_list_caps_rows(self):
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder.build_batch_list(rows=5000)['rows'] == 1000
+
+    def test_locgov_build_batch_list_is_fo_json_only(self):
+        """
+        Confirmed live (2026-06-28): fo=json is mandatory, c=/sp= have no
+        effect. No page/rows params here at all — accepting them would
+        imply pagination support that doesn't exist.
+        """
+        builder = LocGovQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder.build_batch_list() == {'fo': 'json'}
+
+    def test_locgov_build_batch_list_takes_no_arguments(self):
+        builder = LocGovQueryBuilder(ChroniclingAmericaSearchParams())
+        with pytest.raises(TypeError):
+            builder.build_batch_list(page=1)
+
+    def test_fetch_all_batches_default_single_fetch(self):
+        """Base class default (used by LocGovQueryBuilder): one fetch, no pagination."""
+        builder = LocGovQueryBuilder(ChroniclingAmericaSearchParams())
+        calls = []
+
+        def fake_fetch(url, params):
+            calls.append((url, params))
+            return {'datasets': [{'batch': 'a'}, {'batch': 'b'}]}
+
+        result = list(builder.fetch_all_batches(fake_fetch))
+
+        assert len(calls) == 1
+        assert calls[0] == (builder.batch_list_url, {'fo': 'json'})
+        assert result == [{'batch': 'a'}, {'batch': 'b'}]
+
+    def test_fetch_all_batches_legacy_paginates(self):
+        """LegacyQueryBuilder's override: loops pages until exhausted."""
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        pages = [
+            {'batches': [{'batch': 'p1a'}, {'batch': 'p1b'}], 'totalPages': 2},
+            {'batches': [{'batch': 'p2a'}], 'totalPages': 2},
+        ]
+        calls = []
+
+        def fake_fetch(url, params):
+            calls.append(params['page'])
+            return pages[params['page'] - 1]
+
+        result = list(builder.fetch_all_batches(fake_fetch))
+
+        assert calls == [1, 2]
+        assert result == [{'batch': 'p1a'}, {'batch': 'p1b'}, {'batch': 'p2a'}]
+
+    def test_fetch_all_batches_legacy_stops_on_empty_page(self):
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+
+        def fake_fetch(url, params):
+            if params['page'] == 1:
+                return {'batches': [{'batch': 'only'}], 'totalPages': 99}
+            return {'batches': [], 'totalPages': 99}
+
+        result = list(builder.fetch_all_batches(fake_fetch))
+        assert result == [{'batch': 'only'}]

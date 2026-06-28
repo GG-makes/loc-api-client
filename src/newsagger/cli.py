@@ -16,6 +16,7 @@ import sqlite3
 import re
 import traceback
 from tqdm import tqdm
+from unittest.mock import patch
 
 from .config import Config
 from .rate_limited_client import LocApiClient, CaptchaHandlingException, GlobalCaptchaManager
@@ -54,7 +55,7 @@ def search_text(text, date1, date2, limit):
     client = LocApiClient(**config.get_api_config())
     processor = NewsDataProcessor()
     
-    builder = LocGovQueryBuilder.from_cli(text=text, date1=date1, date2=date2, rows=limit)
+    builder = config.query_builder_class.from_cli(text=text, date1=date1, date2=date2, rows=limit)
 
     click.echo(f"🔍 Searching for '{text}' from {date1} to {date2 or 'present'}...")
 
@@ -398,18 +399,8 @@ def estimate_facets(facet_type, rate_limit_delay, max_facets, force_reestimate):
                 pbar.set_description(f"Estimating {facet['facet_value']}")
                 
                 try:
-                    if facet_type == 'date_range':
-                        start_year, end_year = facet['facet_value'].split('/')
-                        estimate = client.estimate_download_size((start_year, end_year))
-                        estimated_items = estimate.get('total_pages', 0)
-                    else:
-                        # For other facet types, do a sample search
-                        #TODO: Fix bug
-                        # This passes a state name as andtext for non-date-range facets, which is semantically wrong — it's searching for the state name as text rather than filtering by state. This is a bug that ChroniclingAmericaSearchParams would expose rather than hide, since from_facet would correctly route a state facet to states rather than search_text.
-                        #TODO: needs replacement with LocGov searchpages
-                        sample = client.search_pages(andtext=facet['facet_value'], rows=1)
-                        estimated_items = sample.get('totalItems', 0)
-                    
+                    builder = config.query_builder_class.from_facet(facet)
+                    estimated_items = client.get_count(builder)                    
                     # Update the facet with the new estimate
                     # We need to update the estimated_items field in the database directly
                     # since update_facet_discovery doesn't have an estimated_items parameter
@@ -477,13 +468,8 @@ def fix_wildly_inaccurate_estimates():
                 pbar.set_description(f"Fixing {facet['facet_value']}")
                 
                 try:
-                    if facet['facet_type'] == 'date_range':
-                        start_year, end_year = facet['facet_value'].split('/')
-                        estimate = client.estimate_download_size((start_year, end_year))
-                        new_estimate = estimate.get('total_pages', 0)
-                    else:
-                        # For other facet types, use basic sampling
-                        new_estimate = 1000  # Conservative default for state facets
+                    builder = config.query_builder_class.from_facet(facet)
+                    new_estimate = client.get_count(builder)
                     
                     # Update the estimate directly
                     with sqlite3.connect(storage.db_path) as conn:
@@ -2507,6 +2493,40 @@ def split_facet(facet_id, facet_value):
         else:
             click.echo(f"   ⚠️  Facet type '{facet['facet_type']}' not suitable for splitting")
 
+@patch('newsagger.cli.Config')
+@patch('newsagger.cli.LocApiClient')
+@patch('newsagger.cli.NewsStorage')
+def test_estimate_facets_command(self, mock_storage, mock_client, mock_config):
+    """
+    Covers the from_facet-based fix: previously, non-date_range facets
+    were estimated via andtext=facet['facet_value'] — searching the state
+    name as free text instead of filtering by state. Now from_facet
+    dispatches state/date_range/combined facets correctly.
+    """
+    mock_config_instance = Mock()
+    mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
+    mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
+    mock_config_instance.query_builder_class = LegacyQueryBuilder
+    mock_config.return_value = mock_config_instance
+
+    mock_client_instance = Mock()
+    mock_client_instance.get_count.return_value = 42
+    mock_client.return_value = mock_client_instance
+
+    mock_storage_instance = Mock()
+    mock_storage_instance.get_search_facets.return_value = [
+        {'id': 1, 'facet_type': 'state', 'facet_value': 'California', 'estimated_items': 0}
+    ]
+    mock_storage.return_value = mock_storage_instance
+
+    result = self.runner.invoke(cli, ['estimate-facets', '--facet-type', 'state'])
+
+    assert result.exit_code == 0
+    mock_client_instance.get_count.assert_called_once()
+    builder_passed = mock_client_instance.get_count.call_args[0][0]
+    # Regression guard: state routed to states, not smuggled into search_text
+    assert builder_passed.params.states == ['california']
+    assert builder_passed.params.search_text is None
 
 if __name__ == '__main__':
     cli()

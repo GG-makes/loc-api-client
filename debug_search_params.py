@@ -11,7 +11,7 @@ from pathlib import Path
 # Add src to Python path
 sys.path.insert(0, str(Path(__file__).parent / 'src'))
 
-from newsagger.api_client import LocApiClient
+from api_client import LocApiClient
 
 def debug_search():
     """Debug search parameters."""

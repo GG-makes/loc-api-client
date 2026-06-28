@@ -28,6 +28,7 @@ class TestIntegration:
             config.request_delay = 0.1  # Fast for testing
             config.log_level = 'WARNING'
             config.loc_base_url = 'https://chroniclingamerica.loc.gov/'  # Use real URL for mocking
+            config.api_version = 'LEGACY'
             yield config
     
     @pytest.fixture

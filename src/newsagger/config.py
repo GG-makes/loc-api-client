@@ -10,6 +10,8 @@ from typing import Optional
 from pathlib import Path
 from dotenv import load_dotenv
 
+from .api_params import LegacyQueryBuilder, LocGovQueryBuilder
+
 
 class Config:
     """Configuration management class."""
@@ -26,8 +28,17 @@ class Config:
                 load_dotenv(env_path)
         
         # Library of Congress API Configuration
-        self.loc_base_url = os.getenv('LOC_BASE_URL', 'https://chroniclingamerica.loc.gov/')
-        
+        self.api_version = os.getenv('API_VERSION', 'LEGACY')
+
+        if self.api_version == 'LEGACY':
+            self.loc_base_url = r'https://chroniclingamerica.loc.gov/'
+            self.query_builder_class = LegacyQueryBuilder
+        elif self.api_version == 'LOC_2026':
+            self.loc_base_url = r'www.loc.gov/collections/chronicling-america/'
+            self.query_builder_class = LocGovQueryBuilder
+        else:
+            raise ValueError("config api_version must be LEGACY or LOC_2026")   
+             
         # Parse request delay with fallback to default
         try:
             self.request_delay = float(os.getenv('REQUEST_DELAY', '3.0'))

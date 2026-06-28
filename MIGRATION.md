@@ -71,6 +71,19 @@ Investigation complete and current as of June 18, 2026. Historical responses and
 | Newspaper list | `chroniclingamerica.loc.gov/newspapers.json` | `www.loc.gov/collections/chronicling-america/titles/` |
 | Batch list | `chroniclingamerica.loc.gov/batches.json` | `www.loc.gov/collections/chronicling-america/datasets/batch-summary/` |
 
+### Implementation Status (Base URL and Endpoint)
+
+Of the three endpoint pairs above, only **Page search** is currently modeled
+in api_params.py — LegacyQueryBuilder/LocGovQueryBuilder's base_url property
+and build() method cover its "where" and "what" for both API versions.
+
+**Newspaper list** and **Batch list** are not yet represented on either
+builder class. LocApiClient.get_newspapers/get_batches still construct their
+own (legacy-only) endpoint and params inline, with no new-API equivalent
+wired in. This is the next gap to close before LocApiClient's three list/search
+methods can all delegate to a builder uniformly, the way search_pages
+partially does already via paginate_search.
+
 ### Parameter Mapping
 
 **Direct substitutions (1:1)**

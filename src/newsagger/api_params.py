@@ -52,10 +52,11 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Generator, List, Literal, Optional
 
-
 # ---------------------------------------------------------------------------
 # Normalized search intent
 # ---------------------------------------------------------------------------
+
+
 
 class ChroniclingAmericaSearchParams:
     """
@@ -474,7 +475,23 @@ class LegacyQueryBuilder(QueryBuilder):
             params["state"] = self.params.states[0].title()
 
         return params
+    
+    def build_count_only(self) -> dict:
+        """
+        Minimal-payload params for a count-only request. Mirrors
+        rate_limited_client.estimate_download_size's original params
+        (rows=1, page=1). chronam has no 'at'-style response-trimming
+        equivalent — rows=1 is the only available minimization.
 
+        Note: the original estimate_download_size accepted an lccn argument
+        that was never actually included in its request params — a
+        pre-existing no-op in the legacy code, not fixed here. See
+        MIGRATION.md's Estimate/Count Mechanism table.
+        """
+        params = self.build()
+        params["rows"] = 1
+        params["page"] = 1
+        return params
 
 # ---------------------------------------------------------------------------
 # Current builder — post-August 2025
@@ -629,4 +646,16 @@ class LocGovQueryBuilder(QueryBuilder):
         if fa_filters:
             params["fa"] = fa_filters
 
+        return params
+    
+    def build_count_only(self) -> dict:
+        """
+        Minimal-payload params for an exact count, via response['pagination']['total'].
+        Discovered via investigate_new_response_format.py; 'at' is not yet in
+        MIGRATION.md's parameter tables. Unlike legacy, lccn/batch filters
+        (via 'fa') are fully included since build() already supports them.
+        """
+        params = self.build()
+        params["c"] = 1
+        params["at"] = "search,results,pagination"
         return params

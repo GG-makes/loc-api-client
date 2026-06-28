@@ -661,48 +661,52 @@ class LocApiClient:
         endpoint = f'lccn/{lccn}.json'
         return self._make_request(endpoint)
     
-    #TODO: dateFilterType is legacy construction only
     def search_pages(self, **params) -> Dict:
         """
         Search newspaper pages with various parameters.
-        
+
         Common parameters:
         - andtext: Search text
         - date1, date2: Date range (YYYY-MM-DD or YYYY)
         - page: Page number
         - rows: Results per page
         - sort: Sort order
+
+        If params already contains 'fo' (loc.gov's format key — e.g. from a
+        LocGovQueryBuilder.build() dict), the request is already fully formed.
+        Pass it through unmodified rather than injecting legacy-only defaults
+        (format=json, dateFilterType) on top of it.
+
+        Note this is a temporary update to solve an immediate bug, 
+        and not consistent with the migration refactor. 
         """
+        if 'fo' in params:
+            return self._make_request('search/pages/results/', params)
+
         # Add default format
         #TODO: Uses old parameters that have been renamed.
         search_params = {'format': 'json'}
         search_params.update(params)
-        
+
         # Handle date parameters and add proper dateFilterType
         if 'date1' in search_params and 'date2' in search_params:
             date1 = search_params['date1']
             date2 = search_params['date2']
-            
-            # If both dates are 4-digit years, use yearRange filter type
+
             if len(date1) == 4 and len(date2) == 4:
-                # For year-only searches, use dateFilterType=yearRange and keep dates as years
                 search_params['dateFilterType'] = 'yearRange'
-                # Keep dates as YYYY format for yearRange
             elif len(date1) == 4:
-                # Convert year to MM/DD/YYYY format for range searches
                 search_params['date1'] = f'01/01/{date1}'
                 search_params['dateFilterType'] = 'range'
             elif len(date2) == 4:
-                # Convert year to MM/DD/YYYY format for range searches  
                 search_params['date2'] = f'12/31/{date2}'
                 search_params['dateFilterType'] = 'range'
             else:
-                # Both are specific dates, use range filter
                 search_params['dateFilterType'] = 'range'
-        
+
         return self._make_request('search/pages/results/', search_params)
     
-    def paginate_search(client, builder) -> Generator[Dict, None, None]:
+    def paginate_search(self, builder) -> Generator[Dict, None, None]:
         """
         Walks all pages of a LocGovQueryBuilder query, yielding each response.
         Replaces the missing search_with_faceted_dates (only ever existed on
@@ -711,7 +715,7 @@ class LocApiClient:
         """
         params = builder.build()
         while True:
-            response = client.search_pages(**params)
+            response = self.search_pages(**params)
             yield response
             next_url = response.get("pagination", {}).get("next")
             if not next_url:

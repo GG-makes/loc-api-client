@@ -132,8 +132,6 @@ if len(pages) > 1:
     if children:
         results = children[0].get('results', [])
         print(f"\n=== results count for batch filter: {len(results)} ===")
-        if results:
-
 
 # Investigation 4: Individual batch detail — try known batch from our earlier results
 batch_url = r"https://www.loc.gov/collections/chronicling-america/?fa=batch:okhi_durant_ver01&fo=json&c=1&dl=page"

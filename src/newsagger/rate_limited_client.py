@@ -755,47 +755,8 @@ class LocApiClient:
                 'error': str(e)
             }
     
-    def get_batches(self, page: int = 1, rows: int = 100) -> Dict:
-        """
-        Get digitization batches (server-friendly alternative to search API).
-        
-        Batches represent groups of digitized newspaper pages and are designed
-        for bulk access without triggering CAPTCHA protection.
-        """
-        #TODO: MIGRATION. Has a new endpoint and response structure.
-
-        params = {
-            'format': 'json',
-            'page': page,
-            'rows': min(rows, 1000)  # Respect API limits
-        }
-        return self._make_request('batches.json', params)
-    
-    def get_all_batches(self) -> Generator[Dict, None, None]:
-        """Generator to fetch all batches with pagination."""
-        #TODO: MIGRATION. Has a new endpoint and response structure.
-
-        page = 1
-        while True:
-            try:
-                data = self.get_batches(page=page)
-                batches = data.get('batches', [])
-                
-                if not batches:
-                    break
-                    
-                for batch in batches:
-                    yield batch
-                    
-                page += 1
-                
-                # Check if we've reached the end
-                if page > data.get('totalPages', 1):
-                    break
-                    
-            except Exception as e:
-                self.logger.error(f"Error fetching batches page {page}: {e}")
-                break
+    def get_all_batches(self, builder) -> Generator[Dict, None, None]:
+        yield from builder.fetch_all_batches(self._make_request)
     
     def get_request_stats(self) -> Dict:
         """Get rate limiting statistics."""

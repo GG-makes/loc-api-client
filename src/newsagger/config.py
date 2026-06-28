@@ -118,7 +118,12 @@ class Config:
         return {
             'db_path': self.database_path
         }
-
-
+    
+    def get_querybuilder_config(self) -> dict:
+        """Get query builder configuration."""
+        return {
+            'query_builder_class': self.query_builder_class
+        }
+    
 # Global configuration instance
 config = Config()

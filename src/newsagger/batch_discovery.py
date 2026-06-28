@@ -13,26 +13,25 @@ from tqdm import tqdm
 
 from .config import Config
 from .rate_limited_client import CaptchaHandlingException, GlobalCaptchaManager
-
+from .api_params import ChroniclingAmericaSearchParams
 
 class BatchDiscoveryProcessor:
     """Handles batch-based content discovery operations."""
     
-    def __init__(self, api_client, processor, storage):
+    def __init__(self, api_client, processor, storage, query_builder_class=None):
         """
-        Initialize the batch discovery processor.
-        
         Args:
-            api_client: LocApiClient instance for making API requests
-            processor: NewsDataProcessor for processing page data
-            storage: NewsStorage for database operations
+            ...
+            query_builder_class: LegacyQueryBuilder or LocGovQueryBuilder
+                (Config.query_builder_class). Required only when listing
+                batches via get_all_batches(); other operations don't need it.
         """
         self.api_client = api_client
         self.processor = processor
         self.storage = storage
+        self.query_builder_class = query_builder_class
         self.logger = logging.getLogger(__name__)
 
-    
     def handle_captcha_during_batch_discovery(self, e: CaptchaHandlingException, 
                                              session_name: str, batch_index: int, 
                                              issue_idx: int, issue_url: str) -> bool:
@@ -237,7 +236,13 @@ class BatchDiscoveryProcessor:
         try:
             # Get all batches first to know total count
             self.logger.info("Getting list of available batches...")
-            all_batches = list(self.api_client.get_all_batches())
+            if self.query_builder_class is None:
+                raise ValueError(
+                    "BatchDiscoveryProcessor.query_builder_class is required to list "
+                    "batches — pass config.query_builder_class at construction."
+                )
+            builder = self.query_builder_class(ChroniclingAmericaSearchParams())
+            all_batches = list(self.api_client.get_all_batches(builder))
             total_batches = len(all_batches)
             
             if max_batches:

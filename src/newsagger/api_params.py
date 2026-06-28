@@ -365,6 +365,15 @@ class QueryBuilder(ABC):
         """The base URL for the API endpoint this builder targets."""
         ...
 
+    def fetch_all_batches(self, fetch) -> Generator[dict, None, None]:
+        """
+        Default: one non-paginated fetch. `fetch` is a callable —
+        fetch(url, params) -> dict — supplied by the caller, so this
+        method owns the *shape* of the fetch (single vs. paginated),
+        not the transport itself.
+        """
+        response = fetch(self.batch_list_url, self.build_batch_list())
+        yield from response.get(self.batch_list_response_key, [])
 
 # ---------------------------------------------------------------------------
 # Legacy builder — pre-August 2025
@@ -391,10 +400,49 @@ class LegacyQueryBuilder(QueryBuilder):
           they are ignored by this builder
     """
     VERSION_SPECIFIC_PARAMS = frozenset({"dateFilterType"})
+    batch_list_response_key = 'batches'
+
+    def fetch_all_batches(self, fetch) -> Generator[dict, None, None]:
+        """
+        Legacy batches.json is paginated — loop until an empty page.
+        This loop shape is legacy-specific; LocGovQueryBuilder inherits
+        the base class's single-fetch default since its batch list
+        isn't paginated at all (confirmed: c=/sp= have no effect).
+        """
+        page = 1
+        while True:
+            response = fetch(self.batch_list_url, self.build_batch_list(page=page))
+            batches = response.get(self.batch_list_response_key, [])
+            if not batches:
+                break
+            yield from batches
+            page += 1
+            if page > response.get('totalPages', 1):
+                break
 
     @property
     def base_url(self) -> str:
         return "https://chroniclingamerica.loc.gov/search/pages/results/"
+
+    @property
+    def newspaper_list_url(self) -> str:
+        return "https://chroniclingamerica.loc.gov/newspapers.json"
+
+    @property
+    def batch_list_url(self) -> str:
+        return "https://chroniclingamerica.loc.gov/batches.json"
+    
+    def build_batch_list(self, page: int = 1, rows: int = 100) -> dict:
+        """
+        Params for the legacy batches.json endpoint. Mirrors the original
+        get_batches' params exactly (format/page/rows) — unchanged from
+        pre-migration behavior.
+        """
+        return {
+            'format': 'json',
+            'page': page,
+            'rows': min(rows, 1000),  # Respect API limits
+        }
 
     def _date_filter_type(self, date1: str, date2: str) -> str:
         """
@@ -514,10 +562,30 @@ class LocGovQueryBuilder(QueryBuilder):
         - Output format via 'fo=json'
         - Display level via 'dl=page'
     """
+    batch_list_response_key = 'datasets'
 
     @property
     def base_url(self) -> str:
         return "https://www.loc.gov/collections/chronicling-america/"
+
+    @property
+    def newspaper_list_url(self) -> str:
+        return "https://www.loc.gov/collections/chronicling-america/titles/"
+
+    @property
+    def batch_list_url(self) -> str:
+        return "https://www.loc.gov/collections/chronicling-america/datasets/batch-summary/"
+    
+    def build_batch_list(self) -> dict:
+        """
+        Params for the loc.gov batch-summary endpoint. fo=json is mandatory,
+        not a default — confirmed live (2026-06-28): omitting it returns a
+        Cloudflare bot-challenge page (403), not JSON. No page/rows are used;
+        c=/sp= confirmed to have no effect; the endpoint always returns its
+        full ~2959-entry dataset list in one response. See MIGRATION.md's
+        Batch list response section.
+        """
+        return {'fo': 'json'}
 
     @classmethod
     def from_cli(

@@ -16,7 +16,7 @@ from newsagger.batch_discovery import BatchDiscoveryProcessor
 from newsagger.storage import NewsStorage
 from newsagger.rate_limited_client import LocApiClient, CaptchaHandlingException, GlobalCaptchaManager
 from newsagger.processor import NewsDataProcessor
-
+from newsagger.api_params import LegacyQueryBuilder
 
 class TestCaptchaHandling:
     """Test CAPTCHA handling in discovery operations."""
@@ -37,10 +37,12 @@ class TestCaptchaHandling:
         self.storage.store_pages_and_enqueue = Mock(return_value=(0, 0))
 
         # Target class under test
+        # Specifying LegacyQueryBuilder vs Loc_2026 doesn't matter - it's just a mock
         self.batch_processor = BatchDiscoveryProcessor(
             self.mock_api_client,
             self.mock_processor,
-            self.storage
+            self.storage,
+            LegacyQueryBuilder
         )
 
         # Reset global CAPTCHA state for clean tests

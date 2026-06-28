@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 from newsagger.cli import cli
 from newsagger.storage import NewsStorage
 from newsagger.config import Config
-
+from newsagger.api_params import LegacyQueryBuilder 
 
 class TestCLI:
     """Test CLI commands."""
@@ -30,6 +30,7 @@ class TestCLI:
         """Test list-newspapers command."""
         # Mock configuration
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config.return_value = mock_config_instance
         
@@ -66,6 +67,7 @@ class TestCLI:
         """Test discover command."""
         # Mock dependencies
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
@@ -96,6 +98,7 @@ class TestCLI:
         """Test discovery-status command."""
         # Mock config
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -133,6 +136,7 @@ class TestCLI:
         """Test list-facets command."""
         # Mock config
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -166,6 +170,7 @@ class TestCLI:
         """Test show-queue command."""
         # Mock config
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -199,6 +204,7 @@ class TestCLI:
         """Test create-facets command."""
         # Mock dependencies
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
@@ -233,6 +239,7 @@ class TestCLI:
         """Test populate-queue command."""
         # Mock dependencies
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
@@ -282,6 +289,7 @@ class TestCLI:
         """Test auto-discover-facets command."""
         # Mock dependencies
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
@@ -320,6 +328,7 @@ class TestCLI:
         """Test auto-enqueue command."""
         # Mock config
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -357,6 +366,7 @@ class TestCLI:
         """Test auto-enqueue with dry-run flag."""
         # Mock config
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -392,6 +402,7 @@ class TestCLI:
         """Test setup-download-workflow command."""
         # Mock dependencies
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
@@ -430,6 +441,7 @@ class TestCLI:
         """Test setup-download-workflow command with states."""
         # Mock dependencies
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
@@ -465,6 +477,7 @@ class TestCLI:
         """Test that setup-download-workflow properly resumes facets with 'discovering' status."""
         with patch('newsagger.cli.Config') as mock_config:
             mock_config_instance = Mock()
+            mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
             mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
             mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
             mock_config.return_value = mock_config_instance
@@ -512,6 +525,7 @@ class TestCLI:
         """Test auto-discover-facets when no pending facets exist."""
         with patch('newsagger.cli.Config') as mock_config:
             mock_config_instance = Mock()
+            mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
             mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
             mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
             mock_config.return_value = mock_config_instance
@@ -530,6 +544,7 @@ class TestCLI:
         """Test that auto-discover-facets includes facets with 'discovering' status for proper resume."""
         with patch('newsagger.cli.Config') as mock_config:
             mock_config_instance = Mock()
+            mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
             mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
             mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
             mock_config.return_value = mock_config_instance
@@ -573,6 +588,7 @@ class TestCLI:
         """Test auto-enqueue when no discovered content exists."""
         with patch('newsagger.cli.Config') as mock_config:
             mock_config_instance = Mock()
+            mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
             mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
             mock_config.return_value = mock_config_instance
             
@@ -601,6 +617,7 @@ class TestCLI:
     def test_status_command(self, mock_storage, mock_config):
         """Test status command."""
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -651,6 +668,7 @@ class TestCLI:
     def test_resume_downloads_command(self, mock_downloader, mock_client, mock_storage, mock_config):
         """Test resume-downloads command."""
         mock_config_instance = Mock()
+        mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config.return_value = mock_config_instance

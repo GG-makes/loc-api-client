@@ -14,7 +14,7 @@ from newsagger.discovery_manager import DiscoveryManager
 from newsagger.storage import NewsStorage
 from newsagger.rate_limited_client import LocApiClient #TODO: replace with ratelimitedclient
 from newsagger.processor import NewsDataProcessor
-
+from newsagger.api_params import LegacyQueryBuilder
 
 class TestDiscoveryAutomation:
     """Test automated discovery functionality."""
@@ -33,7 +33,8 @@ class TestDiscoveryAutomation:
         self.discovery = DiscoveryManager(
             self.mock_api_client,
             self.mock_processor,
-            self.storage
+            self.storage,
+            LegacyQueryBuilder # version doesn't matter in mock
         )
     
     # def teardown_method(self):

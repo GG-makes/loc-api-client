@@ -12,15 +12,16 @@ from typing import Dict, List, Set, Tuple, Optional
 from pathlib import Path
 
 from .rate_limited_client import LocApiClient
-
+from .api_params import ChroniclingAmericaSearchParams
 
 class BatchMapper:
     """Maps between batches, LCCNs, issues, and download status."""
     
-    def __init__(self, storage, api_client: LocApiClient = None):
+    def __init__(self, storage, api_client: LocApiClient = None, query_builder_class=None):
         """Initialize batch mapper."""
         self.storage = storage
         self.api_client = api_client or LocApiClient()
+        self.query_builder_class = query_builder_class
         self._batch_cache = {}
         self._lccn_to_batch_cache = {}
     
@@ -236,7 +237,14 @@ class BatchMapper:
         
         # Get recent batches from API and see which ones contain our LCCNs
         try:
-            all_batches = list(self.api_client.get_all_batches())
+            if self.query_builder_class is None:
+                raise ValueError(
+                    "BatchMapper.query_builder_class is required to list batches — "
+                    "pass config.query_builder_class at construction."
+                )
+            builder = self.query_builder_class(ChroniclingAmericaSearchParams())
+            all_batches = list(self.api_client.get_all_batches(builder))
+
             # Take recent batches (last 50)
             recent_batches = all_batches[-50:] if len(all_batches) > 50 else all_batches
             

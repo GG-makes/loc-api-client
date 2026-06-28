@@ -223,21 +223,51 @@ Key fields — note mixed dict/list structure:
 
 **Batch list response** (`collections/chronicling-america/datasets/batch-summary/`)
 
-Static JSON endpoint. Per batch entry:
+Not actually a bare static JSON file — `fo=json` is **required**. Without it,
+the request returns HTTP 403 with a Cloudflare bot-challenge page
+("Just a moment..."), not JSON. Confirmed live, June 28 2026:
 
-```json
+```python
+requests.get(url, headers={"User-Agent": "..."})              # -> 403, Cloudflare challenge
+requests.get(url, headers={"User-Agent": "..."}, params={"fo": "json"})  # -> 200, real JSON
+
+The batch list itself is nested under the datasets key. 2959 entries as 
+of June 28, 2026.
+
+Confirmed per-entry fields:
 {
     "batch": "okhi_durant_ver01",
     "archive_name": "okhi_durant_ver01.tar.bz2",
+    "archive_created": "...",
+    "batch_file": "...",
+    "identifier": "...",
     "ingested": "2014-11-21T20:47:33-05:00",
     "issue_count": 211,
     "page_count": 5241,
     "lccns": ["sn83030214"],
-    "url": "https://chroniclingamerica.loc.gov/data/ocr/....tar.bz2"
+    "metadata_key": "...",
+    "sha256": "...",
+    "size": "...",
+    "url": "https://chroniclingamerica.loc.gov/data/ocr/....tar.bz2",
+    "verified": "..."
 }
-```
 
-Note: `url` points to legacy OCR bulk download archives. The `batch` name (without `batch_` prefix) is what the `fa=batch:` search filter expects.
+archive_created, batch_file, identifier, metadata_key, sha256,
+size, verified were not previously documented. Exact value types/formats
+not yet individually confirmed — recorded here as field names found, pending
+closer inspection if needed.
+
+Note: url points to legacy OCR bulk download archives. The batch name
+(without batch_ prefix) is what the fa=batch: search filter expects.
+
+No pagination support confirmed — c=/sp= params have no effect; the
+full datasets list (all 2959 entries) is returned regardless. Treat as a
+fetch-everything-at-once endpoint, not a paginated one.
+
+at= does not scope this endpoint the way it does for page search —
+at=results/at=data return an empty dict under that key. The at=
+response-trimming trick (see Estimate/Count Mechanism above) appears
+specific to the search endpoint, not this one.
 
 ### Facets
 
@@ -302,7 +332,7 @@ intent already present in download_newspapere.
 - Response testing: [link](investigate_new_response_format.py)
 - Library of Congress link to OpenSearch XML document, December 20 2023 - Courtesy ofthe Wayback Machine: [link](https://web.archive.org/web/20231220131158/https://chroniclingamerica.loc.gov/search/pages/opensearch.xml)
 - chronam: [link](https://github.com/LibraryOfCongress/chronam/blob/7436a24c2cdf1e38cf2107d420be2721d35b2d32/core/index.py#L726)
----
+- Batch Response Testing: [link](investigate_new_batch_metadata.py)
 
 # Implementation Approach
 

@@ -25,15 +25,16 @@ class DiscoveryManager:
     """Manages discovery of available content and tracks download progress."""
     
     def __init__(self, api_client: LocApiClient, processor: NewsDataProcessor, 
-                 storage: NewsStorage):
+                 storage: NewsStorage, query_builder_class):
         self.api_client = api_client
         self.processor = processor
         self.storage = storage
+        self.query_builder_class = query_builder_class
         self.logger = logging.getLogger(__name__)
         
         # Initialize batch discovery processor
-        self.batch_processor = BatchDiscoveryProcessor(api_client, processor, storage)
-    
+        self.batch_processor = BatchDiscoveryProcessor(api_client, processor, storage, query_builder_class)
+
     def discover_all_periodicals(self, max_newspapers: int = None) -> int:
         """
         Discover all available periodicals and store them for tracking.

@@ -13,7 +13,7 @@ import requests
 
 from src.newsagger.downloader import DownloadProcessor
 from src.newsagger.storage import NewsStorage
-from src.newsagger.api_client import LocApiClient
+from src.newsagger.rate_limited_client import LocApiClient
 
 
 class TestDownloadProcessor:

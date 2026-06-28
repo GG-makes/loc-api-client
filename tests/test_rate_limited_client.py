@@ -283,8 +283,3 @@ class TestLocApiClient:
         assert estimate['total_pages'] == 50
         assert estimate['estimated_size_mb'] == 100  # 50 * 2MB per page
     
-    def test_deprecation_warning(self):
-        """Test that using old api_client shows deprecation warning."""
-        with pytest.warns(DeprecationWarning, match="api_client.LocApiClient is deprecated"):
-            from src.newsagger.api_client import LocApiClient as OldClient
-            client = OldClient()

@@ -10,6 +10,9 @@ The new rate_limited_client module provides:
 - Improved statistics and monitoring
 
 This file is kept for backward compatibility with existing test files.
+
+MIGRATION NOTE: This file has been disconnected from the module. 
+It remains so future users can rerun historical investigation scripts. 
 """
 
 import time

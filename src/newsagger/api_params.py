@@ -682,10 +682,10 @@ class LocGovQueryBuilder(QueryBuilder):
         params: dict = {
             "fo": "json",
             "dl": "page",
+            "at": "results,pagination",
             "sp": self.params.page,
             "c": min(self.params.rows, 1000),
         }
-
         # Search text and operator
         if self.params.search_text:
             params["qs"] = self.params.search_text

@@ -622,6 +622,7 @@ class TestLocGovBuildContract:
         assert result == {
             "fo": "json",
             "dl": "page",
+            "at": "results,pagination",
             "sp": 1,
             "c": 1000,
         }
@@ -692,6 +693,7 @@ class TestLocGovBuildContract:
         assert result == {
             "fo": "json",
             "dl": "page",
+            "at": "results,pagination",
             "sp": 2,
             "c": 100,
             "qs": "earthquake",

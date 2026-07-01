@@ -148,6 +148,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Optional, Set
+from urllib import response
 
 
 logger = logging.getLogger(__name__)
@@ -777,49 +778,36 @@ class LocGovResponseProcessor(ResponseProcessor):
         """
         Parse loc.gov page search response.
 
-        Confirmed loc.gov search response structure (via live API call):
-            Results are nested at pages[1]['children'][0]['results'],
-            NOT at the top-level 'results' key.
+        Response shape assumed here (flat, trimmed by at=results,pagination in
+        LocGovQueryBuilder.build()):
 
-            Top-level response shape:
             {
-                "pages": [
-                    {...},           # pages[0]: about-this-collection
-                    {                # pages[1]: Collection Items
-                        "children": [
-                            {
-                                "results": [  # actual search results here
-                                    {
-                                        "id": "http://www.loc.gov/resource/sn.../YYYY-MM-DD/ed-1/?sp=N",
-                                        "date": "YYYY-MM-DD",
-                                        "number_lccn": ["sn..."],
-                                        "number_edition": ["1"],
-                                        "number_page": ["0000000001"],  # zero-padded, not useful for sequence
-                                        "partof_title": ["newspaper title"],
-                                        "location_state": ["oklahoma"],
-                                        "location_city": ["tulsa"],
-                                        "language": ["english"],
-                                        "batch": ["okhi_durant_ver01"],
-                                        "publication_frequency": ["daily"],
-                                        "resources": [{"url": "...", "files": 1}],  # no pdf/image/ocr
-                                        "mime_type": ["image/jp2", "application/pdf", ...],
-                                        "segmentof": ["http://www.loc.gov/resource/.../ed-1/"],
-                                        "description": ["OCR text content..."],  # OCR in search results!
-                                        "url": "https://www.loc.gov/resource/.../?sp=N&q=..."
-                                    },
-                                    ...
-                                ]
-                            }
-                        ]
+                "results": [
+                    {
+                        "id": "http://www.loc.gov/resource/sn.../YYYY-MM-DD/ed-1/?sp=N",
+                        "date": "YYYY-MM-DD",
+                        "number_lccn": ["sn..."],
+                        "number_edition": ["1"],
+                        "number_page": ["0000000001"],  # zero-padded, not reliable for sequence
+                        "partof_title": ["newspaper title"],
+                        "location_state": ["oklahoma"],
+                        "location_city": ["tulsa"],
+                        "language": ["english"],
+                        "batch": ["okhi_durant_ver01"],
+                        "publication_frequency": ["daily"],
+                        "resources": [{"url": "...", "files": 1}],  # no pdf/image/ocr here
+                        "mime_type": ["image/jp2", "application/pdf", ...],
+                        "segmentof": ["http://www.loc.gov/resource/.../ed-1/"],
+                        "description": ["OCR text snippet..."],
+                        "url": "https://www.loc.gov/resource/.../?sp=N&q=..."
                     },
-                    {...},  # pages[2]: All Digitized Titles
-                    {...}   # pages[3]: Datasets
+                    ...
                 ],
                 "pagination": {
                     "current": 1,
-                    "of": 23745202,       # total items in collection
-                    "total": 2103648,     # total filtered results
-                    "next": "https://www.loc.gov/collections/chronicling-america/?...&sp=2",
+                    "of": 23745202,    # total items in collection (unfiltered)
+                    "total": 2103648,  # total filtered results
+                    "next": "https://...",
                     "last": "https://...",
                     "perpage": 25,
                     "from": 1,
@@ -827,18 +815,17 @@ class LocGovResponseProcessor(ResponseProcessor):
                 }
             }
 
-        Note: 'description' field in search results contains OCR text content —
-        confirmed present in live response. Use this instead of fetching item detail
-        for OCR text when doing bulk discovery.
+        Without at=, results are nested at pages[1]['children'][0]['results'].
+        The at= parameter in build() normalises this to a top-level key so
+        parse_pages and parse_newspapers have symmetric response shapes.
+
+        Note: 'description' contains an OCR text snippet (~1000 chars, not full
+        page). Use this for bulk discovery instead of fetching item detail.
+        Full text is available via the fulltext_file URL on the item detail endpoint.
         """
         # Results are nested, not at top level
         try:
-            pages = response.get('pages', [])
-            results_list = []
-            if len(pages) > 1:
-                children = pages[1].get('children', [])
-                if children:
-                    results_list = children[0].get('results', [])
+            results_list = response.get('results', [])
         except (IndexError, KeyError, TypeError):
             results_list = []
 

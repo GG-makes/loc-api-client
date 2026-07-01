@@ -311,6 +311,18 @@ The new API covers nearly a century more history than the legacy assumption. Cod
 | `facet_subject=` subject heading filter | no direct equivalent |
 | Facet aggregate counts in response | removed |
 
+### Discovery Query Scope
+
+The `discover_facet_content` wiring supports `date_range`, `state`, and `combined`
+facet types, which map to date and state filtering via `ChroniclingAmericaSearchParams`.
+This covers the full bulk systematic discovery workflow.
+
+`LocGovQueryBuilder` exposes additional new-API capabilities (`ops=`, `qs=` text
+search, `location_city=`, `location_county=`, `fa=batch:`) that are not exercised
+by the current discovery workflow. These are available for interactive/CLI use via
+`from_cli()` but are intentionally out of scope for bulk facet discovery.
+
+
 ### Open API Questions
 1) What was the date format(s) accepted by the legacy api?
 Context: The CLI accepts only 4 digit years and YYYY-MM-DD formatted dates except for searchText,

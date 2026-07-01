@@ -3,6 +3,8 @@ Pytest configuration and shared fixtures.
 """
 
 import pytest
+import os
+import requests
 import tempfile
 import sqlite3
 from pathlib import Path
@@ -17,6 +19,29 @@ from newsagger.config import Config
 from newsagger.storage import NewsStorage
 from newsagger.processor import NewsDataProcessor, NewspaperInfo, PageInfo
 
+HEADERS = {"User-Agent": "Newsagger/0.1.0 (Educational Archive Tool - Rate Limited)"}
+
+@pytest.fixture(scope="session", autouse=False)
+def live_api_available():
+    """Skip entire live session if API is unreachable. Note that live tests are only
+    for post-Aug 2025 API, not legacy."""
+    try:
+        resp = requests.head(
+            "https://www.loc.gov/collections/chronicling-america/",
+            headers=HEADERS,
+            timeout=10,
+        )
+        if resp.status_code >= 500:
+            pytest.skip("loc.gov returned server error — skipping live tests")
+    except requests.exceptions.ConnectionError:
+        pytest.skip("No network access — skipping live tests")
+
+
+def pytest_configure(config):
+    config.addinivalue_line(
+        "markers",
+        "live: requires live network access to loc.gov. Do not run with -n (xdist)."
+    )
 
 @pytest.fixture
 def temp_db():

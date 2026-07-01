@@ -414,8 +414,7 @@ class TestFromFacetCompatibility:
 
     def test_date_range_facet_locgov(self, date_range_facet):
         result = LocGovQueryBuilder.from_facet(date_range_facet).build()
-        assert result["start_date"] == "1906-01-01"
-        assert result["end_date"] == "1906-12-31"
+        assert result["dates"] == "1906-01-01/1906-12-31"
 
     def test_state_facet_legacy(self, state_facet):
         result = LegacyQueryBuilder.from_facet(state_facet).build()
@@ -423,7 +422,8 @@ class TestFromFacetCompatibility:
 
     def test_state_facet_locgov(self, state_facet):
         result = LocGovQueryBuilder.from_facet(state_facet).build()
-        assert result["location_state"] == "california"
+        assert "location_state" not in result
+        assert "location_state:california" in result.get("fa", [])
 
     def test_same_signature_both_builders(self, date_range_facet):
         """
@@ -456,9 +456,8 @@ class TestFromFacetCompatibility:
         assert legacy_result["dateFilterType"] == "yearRange"
         assert legacy_result["date1"] == "1900"
         assert legacy_result["date2"] == "1910"
-        assert LocGovQueryBuilder.from_facet(facet).build()["start_date"] == "1900-01-01"
-        assert LocGovQueryBuilder.from_facet(facet).build()["end_date"] == "1910-12-31"
-    
+        assert LocGovQueryBuilder.from_facet(facet).build()["dates"] == "1900-01-01/1910-12-31"    
+
     def test_combined_facet_legacy(self):
         facet = {"facet_type": "combined", "facet_value": "state:California|date_range:1906/1906"}
         result = LegacyQueryBuilder.from_facet(facet).build()
@@ -470,10 +469,9 @@ class TestFromFacetCompatibility:
     def test_combined_facet_locgov(self):
         facet = {"facet_type": "combined", "facet_value": "state:California|date_range:1906/1906"}
         result = LocGovQueryBuilder.from_facet(facet).build()
-        assert result["location_state"] == "california"
-        assert result["start_date"] == "1906-01-01"
-        assert result["end_date"] == "1906-12-31"
-
+        assert "location_state" not in result
+        assert "location_state:california" in result.get("fa", [])
+        assert result["dates"] == "1906-01-01/1906-12-31"
 
 # ---------------------------------------------------------------------------
 # 5. split_date_range
@@ -545,7 +543,7 @@ class TestSplitDateRange:
     def test_chunks_produce_valid_locgov_params(self, multi_year_params):
         for chunk in split_date_range(multi_year_params, chunk_years=1):
             result = LocGovQueryBuilder(chunk).build()
-            assert "start_date" in result and "end_date" in result
+            assert "dates" in result
 
 
 # ---------------------------------------------------------------------------
@@ -555,7 +553,7 @@ class TestSplitDateRange:
 class TestStatesAndBuilderIndependence:
 
     LEGACY_ONLY_KEYS = {"format", "andtext", "state", "date1", "date2", "dateFilterType"}
-    LOCGOV_ONLY_KEYS = {"fo", "qs", "ops", "location_state", "start_date", "end_date", "dl"}
+    LOCGOV_ONLY_KEYS = {"fo", "qs", "ops", "dates", "dl"}
 
     def test_legacy_uses_first_state_only(self):
         params = ChroniclingAmericaSearchParams(states=["california", "oregon"])
@@ -563,7 +561,10 @@ class TestStatesAndBuilderIndependence:
 
     def test_locgov_uses_first_state_only(self):
         params = ChroniclingAmericaSearchParams(states=["california", "oregon"])
-        assert LocGovQueryBuilder(params).build()["location_state"] == "california"
+        result = LocGovQueryBuilder(params).build()
+        assert "location_state:california" in result.get("fa", [])
+        assert "location_state:oregon" not in result.get("fa", [])
+        assert "location_state" not in result
 
     def test_legacy_state_is_title_case(self):
         params = ChroniclingAmericaSearchParams(states=["new york"])
@@ -571,7 +572,9 @@ class TestStatesAndBuilderIndependence:
 
     def test_locgov_state_is_lowercase(self):
         params = ChroniclingAmericaSearchParams(states=["California"])
-        assert LocGovQueryBuilder(params).build()["location_state"] == "california"
+        result = LocGovQueryBuilder(params).build()
+        assert "location_state:california" in result.get("fa", [])
+        assert "location_state" not in result
 
     def test_no_state_key_when_states_empty_legacy(self):
         result = LegacyQueryBuilder(ChroniclingAmericaSearchParams()).build()
@@ -646,16 +649,19 @@ class TestLocGovBuildContract:
         """date1/date2 -> start_date/end_date, full ISO date required."""
         params = ChroniclingAmericaSearchParams(date1="1906", date2="1907")
         result = LocGovQueryBuilder(params).build()
-        assert result["start_date"] == "1906-01-01"
-        assert result["end_date"] == "1907-12-31"
+        assert result["dates"] == "1906-01-01/1907-12-31"
         assert "date1" not in result
         assert "date2" not in result
+        assert "start_date" not in result
+        assert "end_date" not in result
 
     def test_state_key_renamed_to_location_state(self):
         """state= -> location_state=, lowercase (not title case like legacy)."""
         params = ChroniclingAmericaSearchParams(states=["california"])
         result = LocGovQueryBuilder(params).build()
-        assert result["location_state"] == "california"
+        # new:
+        assert "location_state:california" in result.get("fa", [])
+        assert "location_state" not in result
         assert "state" not in result
 
     def test_lccn_moved_to_fa_filter_attribute_pattern(self):
@@ -698,12 +704,11 @@ class TestLocGovBuildContract:
             "c": 100,
             "qs": "earthquake",
             "ops": "OR",
-            "start_date": "1906-01-01",
-            "end_date": "1906-12-31",
-            "location_state": "california",
+            "dates": "1906-01-01/1906-12-31",
             "fa": [
                 "number_lccn:sn83045201",
                 "batch:batch_ca_goldenstate_ver01",
+                "location_state:california",
             ],
         }
 
@@ -748,7 +753,7 @@ class TestLegacyBuildContract:
             "state": "California",
         }
         # new-API-only params must never appear in legacy output
-        for key in ("qs", "ops", "start_date", "end_date", "location_state", "fa", "sp", "c", "fo", "dl"):
+        for key in ("qs", "ops", "dates", "location_state", "fa", "sp", "c", "fo", "dl"):
             assert key not in result
 
     def test_full_query_with_specific_dates_uses_range_and_mm_dd_yyyy(self):

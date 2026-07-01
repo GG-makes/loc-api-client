@@ -553,9 +553,9 @@ class LocGovQueryBuilder(QueryBuilder):
         https://www.loc.gov/collections/chronicling-america/
 
     Key conventions:
-        - Dates as YYYY-MM-DD via 'start_date' / 'end_date'
-        - States as lowercase full names via 'location_state'
-          (multiple states require multiple requests; same as legacy)
+        - Dates as a YYYY-MM-DD/YYYY-MM-DD range via 'dates'
+        - States as lowercase full names via 'fa=location_state:'
+        (same fa= filter attribute pattern as lccn and batch)
         - Search text via 'qs', operator via 'ops'
         - LCCN filter via 'fa=number_lccn:{lccn}'
         - Batch filter via 'fa=batch:{batch}'
@@ -659,8 +659,10 @@ class LocGovQueryBuilder(QueryBuilder):
             filters.append(f"number_lccn:{self.params.lccn}")
         if self.params.batch:
             filters.append(f"batch:{self.params.batch}")
+        if self.params.states:
+            filters.append(f"location_state:{self.params.states[0].lower()}")
         return filters
-
+    
     def build(self) -> dict:
         """
         Build loc.gov API parameters.
@@ -693,21 +695,13 @@ class LocGovQueryBuilder(QueryBuilder):
 
         # Date range
         if self.params.date1 is not None:
-            params["start_date"] = self._format_date(
-                self.params.date1, is_end_date=False
+            start = self._format_date(self.params.date1, is_end_date=False)
+            end = self._format_date(
+                self.params.date2 if self.params.date2 is not None
+                else str(datetime.now().year),
+                is_end_date=True,
             )
-            if self.params.date2 is not None:
-                params["end_date"] = self._format_date(
-                    self.params.date2, is_end_date=True
-                )
-            else:
-                params["end_date"] = self._format_date(
-                    str(datetime.now().year), is_end_date=True
-                )
-
-        # State — lowercase, first entry only
-        if self.params.states:
-            params["location_state"] = self.params.states[0].lower()
+            params["dates"] = f"{start}/{end}"
 
         # LCCN and batch filters
         fa_filters = self._build_fa_filters()

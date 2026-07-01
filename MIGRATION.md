@@ -99,9 +99,9 @@ partially does already via paginate_search.
 
 | Legacy | New | Notes |
 |---|---|---|
-| `date1=YYYY` | `start_date=YYYY-MM-DD` | now requires full ISO date |
-| `date2=YYYY` | `end_date=YYYY-MM-DD` | now requires full ISO date |
-| `state=` | `location_state=` | renamed |
+| `date1=YYYY` | `dates=` (start of range) | combined into single `dates=YYYY-MM-DD/YYYY-MM-DD` param |
+| `date2=YYYY` | `dates=` (end of range)   | combined into single `dates=YYYY-MM-DD/YYYY-MM-DD` param |
+| `state=` | `fa=location_state:` | moved to filter attribute pattern |
 | `lccn=` | `fa=number_lccn:` | moved to filter attribute pattern |
 
 **New parameters with no legacy equivalent**
@@ -288,7 +288,10 @@ requests.get(
 
 ### Facets
 
-**Filtering** — legacy `facet_` parameters are replaced by explicit parameters (`location_state=`, `start_date=`, `end_date=`) or the `fa=` filter attribute prefix. Filtering capability is preserved and expanded.
+**Filtering** — legacy `facet_` parameters are replaced by the `fa=` filter
+attribute prefix (`fa=number_lccn:`, `fa=location_state:`, `fa=batch:`) or
+explicit date parameters (`start_date=`, `end_date=`). Filtering capability
+is preserved and expanded.
 
 **Facet counts** — the new API does not return aggregate facet counts in the JSON response. Any logic consuming these counts must be removed or redesigned.
 

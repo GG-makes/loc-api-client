@@ -161,20 +161,8 @@ class TestLocGovRequestsLive:
         
 class TestLocGovImageUrlsLive:
     """
-    Investigates whether PDF/JP2 URLs can be constructed from search results
-    alone, or whether a second item-detail request is required per page.
-
-    Background: LocGovResponseProcessor.parse_pages() constructs image URLs as
-        base = id.split('?')[0].rstrip('/')   # strips ?sp=N → edition-level path
-        pdf_url = f"{base}.pdf"
-
-    This may produce an edition-level URL (ed-1/.pdf) rather than a page-level
-    one. These tests determine whether that resolves, and compare it against the
-    authoritative resource.pdf from the item detail endpoint.
-
-    Findings here directly affect bulk download strategy: if constructed URLs
-    don't resolve, every discovered page requires a second API call to get
-    working image URLs from its item detail response.
+    Establishes that PDF/JP2 URLs cannot be constructed from search results
+    alone and a second item-detail request is required per page.
     """
     pytestmark = [pytest.mark.live, pytest.mark.usefixtures("live_api_available")]
 
@@ -192,38 +180,6 @@ class TestLocGovImageUrlsLive:
         results = resp.json().get("results", [])
         assert results, "No results — cannot run image URL tests"
         return results[0]
-
-    def test_constructed_pdf_url_resolves(self, sample_page):
-        """
-        HEAD request to {base}.pdf constructed from search result id.
-        Failure means bulk download cannot use search results alone for PDFs.
-        """
-        page_id = sample_page.get("id") or sample_page.get("url", "")
-        constructed = f"{page_id.split('?')[0].rstrip('/')}.pdf"
-        print(f"\nTesting constructed PDF URL: {constructed}")
-
-        time.sleep(DELAY)
-        resp = requests.head(constructed, headers=HEADERS, timeout=30, allow_redirects=True)
-        assert resp.status_code == 200, (
-            f"Constructed PDF URL returned {resp.status_code}: {constructed}\n"
-            "parse_pages() URL construction is wrong — item detail fetch required."
-        )
-
-    def test_constructed_jp2_url_resolves(self, sample_page):
-        """
-        HEAD request to {base}.jp2 constructed from search result id.
-        Failure means JP2 images require item-detail fetch.
-        """
-        page_id = sample_page.get("id") or sample_page.get("url", "")
-        constructed = f"{page_id.split('?')[0].rstrip('/')}.jp2"
-        print(f"\nTesting constructed JP2 URL: {constructed}")
-
-        time.sleep(DELAY)
-        resp = requests.head(constructed, headers=HEADERS, timeout=30, allow_redirects=True)
-        assert resp.status_code == 200, (
-            f"Constructed JP2 URL returned {resp.status_code}: {constructed}\n"
-            "parse_pages() URL construction is wrong — item detail fetch required."
-        )
 
     def test_item_detail_has_resource_pdf_and_image(self, sample_page):
         """

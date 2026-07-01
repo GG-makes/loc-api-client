@@ -130,6 +130,37 @@ partially does already via paginate_search.
 Source: `at=`/`pagination.total` mechanism confirmed via
 [investigate_new_response_format.py](investigate_new_response_format.py).
 
+### PageInfo Field Changes
+
+The new API does not include image or full OCR URLs in search results. These were available directly in the legacy API's search response; the new API requires a separate item detail request to retrieve them. This reflects standard metadata API design — search results are for discovery, not bulk delivery of download-ready assets.
+
+| Field | Legacy (search result) | New API (search result) | Resolution |
+|---|---|---|---|
+| `item_id` | `id` (string) | `id` (string) | unchanged |
+| `lccn` | `lccn` (string) | `number_lccn[0]` (list) | extract first element |
+| `title` | `title` (string) | `partof_title[0]` (list) | extract first element |
+| `date` | `YYYYMMDD` → conversion required | already `YYYY-MM-DD` | conversion removed |
+| `edition` | `edition` (int) | `number_edition[0]` (list) | extract, parse int |
+| `sequence` | `sequence` (int) | not a reliable field | parsed from `?sp=N` in `id` URL |
+| `page_url` | `id` (string) | `id` (string) | unchanged |
+| `pdf_url` | `pdf` (direct, search result) | not in search results | item detail required |
+| `jp2_url` | `image` (direct, search result) | not in search results | item detail required |
+| `ocr_text` | full OCR text (`ocr_eng`) | ~1000 char snippet (`description`) | full text requires separate fetch (see below) |
+| `word_count` | `word_count` (int) | not available | stored as `None` |
+
+### Full OCR Text
+
+The `description` field in search results is a truncated OCR snippet of approximately 1000 characters. It is sufficient for discovery — confirming that a page has content — but not for full-text indexing or research use.
+
+Full OCR text requires two additional requests per page beyond discovery:
+
+1. **Item detail** — fetch `{page_url}?fo=json` → read `resource.fulltext_file`, which is a URL pointing to the page's plain-text OCR file
+2. **OCR fetch** — fetch that URL → full OCR text as a plain text response
+
+This means the per-page download workflow now makes three API calls where the legacy workflow made one (search result included everything). The rate limiter must account for this when bulk downloading with OCR.
+
+For bulk-scale OCR ingestion, the batch archive files (`.tar.bz2` linked from the batch list endpoint) contain ALTO XML OCR files for every page and are substantially more efficient than per-page API calls. This was true under the legacy API as well and remains the recommended approach for large-scale text corpus work.
+
 ### Response Structure
 
 **Page search response**

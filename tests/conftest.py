@@ -23,20 +23,18 @@ HEADERS = {"User-Agent": "Newsagger/0.1.0 (Educational Archive Tool - Rate Limit
 
 @pytest.fixture(scope="session", autouse=False)
 def live_api_available():
-    """Skip entire live session if API is unreachable. Note that live tests are only
-    for post-Aug 2025 API, not legacy."""
+    """Skip live tests if API is unreachable or not returning 200."""
     try:
-        resp = requests.head(
+        resp = requests.get(
             "https://www.loc.gov/collections/chronicling-america/",
             headers=HEADERS,
+            params={"fo": "json", "c": 1, "at": "results,pagination"},
             timeout=10,
         )
-        if resp.status_code >= 500:
-            pytest.skip("loc.gov returned server error — skipping live tests")
+        if resp.status_code != 200:
+            pytest.skip(f"loc.gov returned {resp.status_code} — skipping live tests")
     except requests.exceptions.ConnectionError:
         pytest.skip("No network access — skipping live tests")
-
-
 def pytest_configure(config):
     config.addinivalue_line(
         "markers",

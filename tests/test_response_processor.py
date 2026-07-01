@@ -204,14 +204,9 @@ def locgov_page_item():
 
 @pytest.fixture
 def locgov_search_response(locgov_page_item):
-    """loc.gov page search response — results nested at pages[1]['children'][0]['results']."""
+    """loc.gov page search response — flat shape from at=results,pagination."""
     return {
-        'pages': [
-            {'slug': 'about-this-collection', 'children': [{'results': []}]},
-            {'slug': '', 'children': [{'results': [locgov_page_item]}]},
-            {'slug': 'titles'},
-            {'slug': 'datasets'},
-        ],
+        'results': [locgov_page_item],
         'pagination': {
             'current': 1,
             'total': 2103648,
@@ -681,16 +676,16 @@ class TestLocGovParsePages:
         result = locgov_processor.parse_pages(locgov_search_response)
         assert result[0].lccn == 'sn84038012'
 
-    def test_reads_from_nested_results(self, locgov_processor, locgov_search_response):
-        """[LOCGOV] Results read from pages[1]['children'][0]['results'] — not top-level."""
+    def test_reads_from_flat_results_key(self, locgov_processor, locgov_search_response):
+        """[LOCGOV] Results read from top-level 'results' key — at= normalized flat shape."""
         result = locgov_processor.parse_pages(locgov_search_response)
         assert len(result) == 1
-
+        
     def test_empty_results(self, locgov_processor):
         """[LOCGOV] Empty results list returns empty result."""
         response = {'pages': [{}, {'children': [{'results': []}]}, {}, {}]}
         result = locgov_processor.parse_pages(response)
-        assert result == []
+        response = {'results': [], 'pagination': {}}
 
     def test_returns_page_info_instances(self, locgov_processor, locgov_search_response):
         """[LOCGOV] Returns list of PageInfo dataclasses."""
@@ -877,16 +872,20 @@ class TestLocGovExtra:
         result = locgov_processor.parse_batch_list({'datasets': []})
         assert result == []
 
-    def test_page_search_results_not_at_top_level(self, locgov_processor):
-        """[LOCGOV_EXTRA] Top-level 'results' key is ignored — results must be nested.
-        Protects against accidentally reading the wrong key if API adds top-level results."""
+    def test_page_search_results_at_top_level(self, locgov_processor):
+        """[LOCGOV_EXTRA] Flat 'results' key is authoritative — at= normalization.
+        Nested pages structure is ignored by parse_pages."""
         response = {
-            'results': [{'id': 'should-be-ignored', 'lccn': 'sn999'}],
+            'results': [{'id': 'should-be-read', 'date': '1906-04-18',
+                        'number_lccn': ['sn84038012'], 'number_edition': ['1'],
+                        'partof_title': ['test title']}],
+            'pagination': {'current': 1, 'total': 1},
             'pages': [{}, {'children': [{'results': []}]}, {}, {}],
         }
         result = locgov_processor.parse_pages(response)
-        assert result == []
-
+        assert len(result) == 1
+        assert result[0].item_id == 'should-be-read'
+        
     def test_newspaper_list_at_pages_2_not_pages_1(self, locgov_processor, locgov_newspapers_response):
         """[LOCGOV_EXTRA] Newspaper list results at pages[2], page search at pages[1].
         These are different endpoints — nesting index differs."""
@@ -1019,7 +1018,7 @@ class TestDeduplicationMixin:
 
     def test_deduplicates_by_item_id_locgov(self, dedup_locgov, locgov_page_item):
         """[MIXIN] Duplicate item_ids filtered from locgov response."""
-        response = {'pages': [{}, {'children': [{'results': [locgov_page_item, locgov_page_item]}]}, {}, {}]}
+        response = {'results': [locgov_page_item, locgov_page_item], 'pagination': {}}
         result = dedup_locgov.parse_pages(response)
         assert len(result) == 1
 
@@ -1130,7 +1129,7 @@ class TestRegressionEdgeCases:
             'partof_title': ['the san francisco call'],
             # 'description' intentionally absent
         }
-        response = {'pages': [{}, {'children': [{'results': [item_no_description]}]}, {}, {}]}
+        response = {'results': [item_no_description], 'pagination': {}}
         result = locgov_processor.parse_pages(response)
         assert len(result) == 1
         assert result[0].ocr_text is None
@@ -1145,7 +1144,7 @@ class TestRegressionEdgeCases:
             'partof_title': ['the san francisco call'],
             'description': [],
         }
-        response = {'pages': [{}, {'children': [{'results': [item_empty_description]}]}, {}, {}]}
+        response = {'results': [item_empty_description], 'pagination': {}}
         result = locgov_processor.parse_pages(response)
         assert result[0].ocr_text is None
 

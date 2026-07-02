@@ -505,6 +505,11 @@ class ProgressMonitor:
         now = datetime.now()
         
         # Try to calculate actual rates from database session activity
+        # TODO: `timeout` is not defined in this method — it is a local variable in
+        # get_progress_stats() and is not passed here. This raises a NameError that
+        # is silently swallowed by the outer `except Exception: pass`, so ETAs always
+        # show "Calculating...". Fix: define `timeout = 1.0` at the top of this method
+        # or accept it as a parameter.
         try:
             with sqlite3.connect(self.db_path, timeout=timeout) as conn:
                 cursor = conn.cursor()
@@ -628,6 +633,16 @@ class ProgressMonitor:
     
     def _collect_rate_limiting_data(self, stats: ProgressStats):
         """Collect rate limiting data from the RateLimitedRequestManager."""
+        # TODO: cross-process isolation makes this method a no-op. RateLimitedRequestManager
+        # and GlobalCaptchaManager are instantiated here in the monitor process, but the
+        # actual rate-limit and CAPTCHA state lives in the subprocess workers (separate
+        # memory). Fresh instances are returned with default/empty values, so the API
+        # Status panel always shows "Monitor Mode" regardless of real state.
+        # Fix options:
+        #   a) Write rate-limit state to the database from the worker processes and
+        #      read it here via SQL (consistent with how discovery/download progress
+        #      is already tracked)
+        #   b) Use a shared file or IPC mechanism between monitor and worker processes
         try:
             # Import the rate limited client here to avoid circular imports
             from newsagger.rate_limited_client import RateLimitedRequestManager

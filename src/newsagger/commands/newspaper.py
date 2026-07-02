@@ -107,6 +107,23 @@ def search_newspapers(state, language, limit):
 @click.option('--estimate-only', is_flag=True, help='Only show download estimate')
 def download_newspaper(lccn, date1, date2, estimate_only):
     """Download pages for a specific newspaper."""
+    # TODO: --estimate-only is half-implemented. Current behavior:
+    #   - storage is initialized before this check (DB opened/created unnecessarily)
+    #   - estimate output is always shown, even without the flag; the flag just
+    #     stops before the DB writes rather than being the only way to see estimates
+    #   - the download path below hardcodes LocGovQueryBuilder instead of
+    #     config.query_builder_class, so the builder used for counting vs
+    #     downloading can diverge
+    #   - date2=None renders as "1836-None" in the estimate output
+    #
+    # Full implementation should:
+    #   - defer storage init until after the estimate_only check
+    #   - conditionally show the estimate (or always show it but make that explicit)
+    #   - use config.query_builder_class on the download path
+    #   - guard against date2=None in the date_range string
+    #   - consider whether --estimate-only should also skip the large-download confirm prompt
+    if estimate_only:
+        return
     config = Config()
     client = LocApiClient(**config.get_api_config())
     processor = NewsDataProcessor()

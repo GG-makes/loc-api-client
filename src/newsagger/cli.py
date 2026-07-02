@@ -50,7 +50,16 @@ cli.add_command(newspaper)
 @click.option('--date2', help='End date')
 @click.option('--limit', default=100, help='Max results per facet')
 def search_text(text, date1, date2, limit):
-    """Search for text across newspaper archives."""
+    """Search for text across newspaper pages and report match counts.
+
+    Queries the LOC Chronicling America archive for pages containing TEXT
+    and prints a total result count. Results are not saved to the database
+    and pages are not enqueued for download.
+
+    This is an exploration tool for scoping a query before committing to
+    bulk acquisition. For actual downloads, use discover-via-batches with
+    --auto-enqueue followed by process-downloads.
+        """
     config = Config()
     client = LocApiClient(**config.get_api_config())
     processor = NewsDataProcessor()
@@ -60,7 +69,25 @@ def search_text(text, date1, date2, limit):
     click.echo(f"🔍 Searching for '{text}' from {date1} to {date2 or 'present'}...")
 
     total_results = 0
-
+    # TODO: search_text is half-implemented. Current behavior:
+    #   - paginate_search walks ALL pages of results (one rate-limited API call
+    #     per page) even though only a count is produced; use get_count() instead
+    #     for a single-call count
+    #   - --limit sets the page size (rows per API call), not a total result cap;
+    #     there is no early-exit so --limit 100 still fetches the entire archive
+    #   - results are parsed into PageInfo objects via process_search_response()
+    #     then immediately discarded — nothing is stored or displayed
+    #   - no output beyond a final count; no titles, dates, or OCR snippets shown
+    #
+    # Full implementation should choose one of two directions:
+    #   a) Fast count: replace paginate_search loop with a single get_count() call
+    #   b) Exploration tool: fetch first N results, display metadata + OCR snippet
+    #      per match, optionally store PageInfo records to DB via storage.store_pages()
+    #      so they can be enqueued for process-downloads separately
+    #
+    # Direction (b) is the primary intended use case and aligns with the
+    # enrich_from_detail architecture being built in the migration.
+    
     with tqdm(desc="Searching") as pbar:
         for result_batch in client.paginate_search(builder):
             pages = processor.process_search_response(result_batch)

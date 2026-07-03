@@ -113,17 +113,22 @@ class TestLocGovRequestsLive:
         assert isinstance(total, int) and total > 0
 
     def test_pagination_advances_correctly(self):
-        """sp= param works — page 2 has different item IDs than page 1."""
+        """pagination.next URL advances through results — page 2 has different item IDs than page 1."""
         data1 = _get(LocGovQueryBuilder(ChroniclingAmericaSearchParams(
-            date1="1906", date2="1906", rows=5, page=1
+            date1="1906", date2="1906", rows=5
         )))
-        data2 = _get(LocGovQueryBuilder(ChroniclingAmericaSearchParams(
-            date1="1906", date2="1906", rows=5, page=2
-        )))
+        next_url = data1.get("pagination", {}).get("next")
+        assert next_url, "No pagination.next — cannot test pagination advance"
+
+        time.sleep(DELAY)
+        resp = requests.get(next_url, headers=HEADERS, timeout=30)
+        resp.raise_for_status()
+        data2 = resp.json()
+
         ids1 = {r["id"] for r in data1["results"]}
         ids2 = {r["id"] for r in data2["results"]}
         assert ids1.isdisjoint(ids2)
-
+        
     def test_result_fields_match_processor_expectations(self):
         """
         Spot-check that result item keys match what LocGovResponseProcessor

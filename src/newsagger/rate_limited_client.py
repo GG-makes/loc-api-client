@@ -708,6 +708,10 @@ class LocApiClient:
         Walks all pages of a query, yielding each response. Replaces the
         missing search_with_faceted_dates (only ever existed on the deprecated
         api_client.LocApiClient).
+
+        NOTE: I was unable to confirm whether the legacy api had
+        the 'next' functionality. In the unlikely circumstance the module is
+        ever run against the legacy api again, this will need testing.  
         """
         while True:
             response = self.search(builder)

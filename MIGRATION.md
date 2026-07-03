@@ -92,7 +92,7 @@ partially does already via paginate_search.
 |---|---|---|
 | `andtext=` | `qs=` | keyword search |
 | `rows=` | `c=` | results per page |
-| `page=` | `sp=` | pagination |
+| `page=` | `response['pagination']['next']` | pagination |
 | `format=json` | `fo=json` | response format |
 
 **Changed parameters**
@@ -116,6 +116,7 @@ partially does already via paginate_search.
 | `partof_title=` | filter by newspaper title name |
 | `fa=batch:` | filter by batch name |
 | `subject_ethnicity=` | filter by ethnicity subject heading |
+| `sp` | sequence page filter for the physical newspaper page |
 
 ### Estimate / Count Mechanism
 

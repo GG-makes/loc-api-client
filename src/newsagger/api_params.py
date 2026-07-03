@@ -88,7 +88,8 @@ class ChroniclingAmericaSearchParams:
         batch:
             Digitization batch name to filter results.
         page:
-            Page number for paginated results (1-indexed).
+            Page number for paginated results (1-indexed). Accessible for 
+            Legacy API only.New api accepts 'next'
         rows:
             Results per page. Capped at 1000 by both builders.
         sort:
@@ -677,15 +678,13 @@ class LocGovQueryBuilder(QueryBuilder):
             Only the first state is used. Callers should loop over states.
 
         Note:
-            'sp' is used for page number and 'c' for count, which are the
-            loc.gov API conventions. Verify these against current documentation
+            'c' is used for count. Verify against current documentation
             before relying on them in production.
         """
         params: dict = {
             "fo": "json",
             "dl": "page",
             "at": "results,pagination",
-            "sp": self.params.page,
             "c": min(self.params.rows, 1000),
         }
         # Search text and operator

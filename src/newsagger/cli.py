@@ -20,11 +20,9 @@ from unittest.mock import patch
 
 from .config import Config
 from .rate_limited_client import LocApiClient, CaptchaHandlingException, GlobalCaptchaManager
-from .processor import NewsDataProcessor
 from .storage import NewsStorage
 from .discovery_manager import DiscoveryManager
 from .downloader import DownloadProcessor
-from .api_params import LocGovQueryBuilder # From migration
 
 # Import command modules
 from .commands.newspaper import newspaper
@@ -62,7 +60,7 @@ def search_text(text, date1, date2, limit):
         """
     config = Config()
     client = LocApiClient(**config.get_api_config())
-    processor = NewsDataProcessor()
+    processor = config.processor_class()
     
     builder = config.query_builder_class.from_cli(text=text, date1=date1, date2=date2, rows=limit)
 
@@ -87,10 +85,10 @@ def search_text(text, date1, date2, limit):
     #
     # Direction (b) is the primary intended use case and aligns with the
     # enrich_from_detail architecture being built in the migration.
-    
+
     with tqdm(desc="Searching") as pbar:
         for result_batch in client.paginate_search(builder):
-            pages = processor.process_search_response(result_batch)
+            pages = processor.parse_pages(result_batch)
             stored = len(pages)
             total_results += stored
             pbar.update(stored)
@@ -108,7 +106,7 @@ def discover(max_papers, states):
     """Discover and catalog available periodicals from LOC."""
     config = Config()
     client = LocApiClient(**config.get_api_config())
-    processor = NewsDataProcessor()
+    processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
                                  **config.get_querybuilder_config())
@@ -156,7 +154,7 @@ def create_facets(start_year, end_year, facet_size, estimate_items, rate_limit_d
     """
     config = Config()
     client = LocApiClient(**config.get_api_config())
-    processor = NewsDataProcessor()
+    processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
                                  **config.get_querybuilder_config())
@@ -532,7 +530,7 @@ def populate_queue(priority_states, priority_dates):
     """Populate download queue with discovered content."""
     config = Config()
     client = LocApiClient(**config.get_api_config())
-    processor = NewsDataProcessor()
+    processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
                                 **config.get_querybuilder_config())
@@ -578,7 +576,7 @@ def auto_discover_facets(auto_enqueue, batch_size, max_items, skip_errors, timeo
     """
     config = Config()
     client = LocApiClient(**config.get_api_config())
-    processor = NewsDataProcessor()
+    processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
                                 **config.get_querybuilder_config())
@@ -945,7 +943,7 @@ def discover_via_batches(max_batches, auto_enqueue, rate_limit_delay):
     
     # Initialize components
     api_client = LocApiClient()
-    processor = NewsDataProcessor()
+    processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
                                 **config.get_querybuilder_config())
@@ -1000,7 +998,7 @@ def test_discovery(year, state, max_items):
     """Test discovery with a small, focused dataset."""
     config = Config()
     client = LocApiClient(**config.get_api_config())
-    processor = NewsDataProcessor()
+    processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, **config.get_querybuilder_config())
     
@@ -1536,7 +1534,7 @@ def setup_download_workflow(start_year, end_year, states, auto_discover, auto_en
     """
     config = Config()
     client = LocApiClient(**config.get_api_config())
-    processor = NewsDataProcessor()
+    processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
                                 **config.get_querybuilder_config())
@@ -2093,7 +2091,7 @@ def retry_failed_facets(batch_size, max_items):
     """Retry facets that failed during discovery with smaller batch sizes."""
     config = Config()
     client = LocApiClient(**config.get_api_config())
-    processor = NewsDataProcessor()
+    processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
                                 **config.get_querybuilder_config())

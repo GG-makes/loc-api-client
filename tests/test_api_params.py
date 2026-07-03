@@ -626,7 +626,6 @@ class TestLocGovBuildContract:
             "fo": "json",
             "dl": "page",
             "at": "results,pagination",
-            "sp": 1,
             "c": 1000,
         }
 
@@ -638,7 +637,7 @@ class TestLocGovBuildContract:
         result = LocGovQueryBuilder(params).build()
         assert result["qs"] == "flood"
         assert result["c"] == 50
-        assert result["sp"] == 3
+        # Note no sp (page). legacy-only
         assert result["fo"] == "json"
         assert "andtext" not in result
         assert "rows" not in result
@@ -700,7 +699,6 @@ class TestLocGovBuildContract:
             "fo": "json",
             "dl": "page",
             "at": "results,pagination",
-            "sp": 2,
             "c": 100,
             "qs": "earthquake",
             "ops": "OR",

@@ -484,6 +484,7 @@ class LegacyResponseProcessor(ResponseProcessor):
         for item in response.get('newspapers', []):
             if not isinstance(item, dict):
                 logger.warning(f"Skipping non-dict item in parse_pages: {type(item)}")
+                continue
             try:
                 place = [item['state']] if item.get('state') else item.get('place_of_publication', [])
                 results.append(NewspaperInfo(
@@ -1387,3 +1388,16 @@ class NewspaperUtilsMixin:
 
         except ValueError:
             return False
+
+# ---------------------------------------------------------------------------
+# Build the classes
+# ---------------------------------------------------------------------------
+
+class LegacyProcessor(DeduplicationMixin, NewspaperUtilsMixin, LegacyResponseProcessor):
+    """Production legacy processor: parsing + dedup + newspaper utilities."""
+    pass
+
+
+class LocGovProcessor(DeduplicationMixin, NewspaperUtilsMixin, LocGovResponseProcessor):
+    """Production loc.gov processor: parsing + dedup + newspaper utilities."""
+    pass

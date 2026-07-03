@@ -17,7 +17,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from newsagger.config import Config
 from newsagger.storage import NewsStorage
-from newsagger.processor import NewsDataProcessor, NewspaperInfo, PageInfo
 
 HEADERS = {"User-Agent": "Newsagger/0.1.0 (Educational Archive Tool - Rate Limited)"}
 
@@ -64,11 +63,11 @@ def storage(temp_db):
     """Create a NewsStorage instance with temporary database."""
     return NewsStorage(temp_db)
 
-
-@pytest.fixture
-def processor():
-    """Create a NewsDataProcessor instance."""
-    return NewsDataProcessor()
+#TODO: Figure out what's a useful replacement to this test. 
+# @pytest.fixture
+# def processor():
+#     """Create a NewsDataProcessor instance."""
+#     return NewsDataProcessor()
 
 
 @pytest.fixture

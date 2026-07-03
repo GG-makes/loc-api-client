@@ -11,7 +11,7 @@ import json
 from typing import Dict, List, Optional, Tuple
 from pathlib import Path
 from datetime import datetime
-from .processor import NewspaperInfo, PageInfo
+from .processor_new import NewspaperInfo, PageInfo
 from .utils import DatabaseOperationMixin
 from contextlib import contextmanager
 

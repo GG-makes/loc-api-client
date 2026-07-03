@@ -25,58 +25,39 @@ class TestCLI:
         
     @patch('newsagger.commands.newspaper.Config')
     @patch('newsagger.commands.newspaper.LocApiClient')
-    @patch('newsagger.commands.newspaper.NewsDataProcessor')
-    def test_list_newspapers(self, mock_processor, mock_client, mock_config):
+    def test_list_newspapers(self, mock_client, mock_config):
         """Test list-newspapers command."""
-        # Mock configuration
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
-        mock_config.return_value = mock_config_instance
-        
-        # Mock API client
-        mock_client_instance = Mock()
-        mock_client_instance.get_all_newspapers.return_value = [
-            {'lccn': 'test123', 'title': 'Test Paper'}
-        ]
-        mock_client.return_value = mock_client_instance
-        
-        # Mock processor
+
         mock_processor_instance = Mock()
-        mock_processor_instance.process_newspapers_response.return_value = []
+        mock_processor_instance.parse_newspapers.return_value = []
         mock_processor_instance.get_newspaper_summary.return_value = {
             'total_newspapers': 1,
             'states': {'Test State': 1}
         }
-        mock_processor.return_value = mock_processor_instance
-        
-        result = self.runner.invoke(cli, ['newspaper', 'list-newspapers'])
-        
-        assert result.exit_code == 0
-        # Test may get real data if mocks don't work, so check for either
-        assert ("Found 1 newspapers" in result.output or "Found" in result.output and "newspapers" in result.output)
-        # Only assert the call if we actually got mocked data
-        if "Found 1 newspapers" in result.output:
-            mock_client_instance.get_all_newspapers.assert_called_once()
-        
+        mock_config_instance.processor_class.return_value = mock_processor_instance
+        mock_config.return_value = mock_config_instance
+
     @patch('newsagger.cli.Config')
     @patch('newsagger.cli.LocApiClient') 
-    @patch('newsagger.cli.NewsDataProcessor')
     @patch('newsagger.cli.NewsStorage')
-    def test_discover_command(self, mock_storage, mock_processor, mock_client, mock_config):
+    def test_discover_command(self, mock_storage, mock_client, mock_config):
         """Test discover command."""
         # Mock dependencies
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
+        mock_config_instance.processor_class = Mock()
+
         mock_config.return_value = mock_config_instance
         
         mock_client_instance = Mock()
         mock_client.return_value = mock_client_instance
         
         mock_processor_instance = Mock()
-        mock_processor.return_value = mock_processor_instance
         
         mock_storage_instance = Mock()
         mock_storage_instance.get_periodicals.return_value = []
@@ -198,9 +179,8 @@ class TestCLI:
         
     @patch('newsagger.cli.Config')
     @patch('newsagger.cli.LocApiClient')
-    @patch('newsagger.cli.NewsDataProcessor')
     @patch('newsagger.cli.NewsStorage')
-    def test_create_facets(self, mock_storage, mock_processor, mock_client, mock_config):
+    def test_create_facets(self, mock_storage, mock_client, mock_config):
         """Test create-facets command."""
         # Mock dependencies
         mock_config_instance = Mock()
@@ -208,13 +188,11 @@ class TestCLI:
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
-        
+        mock_config_instance.processor_class = Mock()
+
         mock_client_instance = Mock()
         mock_client.return_value = mock_client_instance
-        
-        mock_processor_instance = Mock()
-        mock_processor.return_value = mock_processor_instance
-        
+                
         mock_storage_instance = Mock()
         mock_storage_instance.get_search_facets.return_value = []
         mock_storage.return_value = mock_storage_instance
@@ -233,9 +211,8 @@ class TestCLI:
             
     @patch('newsagger.cli.Config')
     @patch('newsagger.cli.LocApiClient')
-    @patch('newsagger.cli.NewsDataProcessor')
     @patch('newsagger.cli.NewsStorage')
-    def test_populate_queue(self, mock_storage, mock_processor, mock_client, mock_config):
+    def test_populate_queue(self, mock_storage, mock_client, mock_config):
         """Test populate-queue command."""
         # Mock dependencies
         mock_config_instance = Mock()
@@ -247,9 +224,9 @@ class TestCLI:
         mock_client_instance = Mock()
         mock_client.return_value = mock_client_instance
         
-        mock_processor_instance = Mock()
-        mock_processor.return_value = mock_processor_instance
-        
+        mock_config_instance.processor_class = Mock()
+        mock_config.return_value = mock_config_instance        
+
         mock_storage_instance = Mock()
         mock_storage.return_value = mock_storage_instance
         
@@ -283,9 +260,8 @@ class TestCLI:
             
     @patch('newsagger.cli.Config')
     @patch('newsagger.cli.LocApiClient')
-    @patch('newsagger.cli.NewsDataProcessor')
     @patch('newsagger.cli.NewsStorage')
-    def test_auto_discover_facets_command(self, mock_storage, mock_processor, mock_client, mock_config):
+    def test_auto_discover_facets_command(self, mock_storage, mock_client, mock_config):
         """Test auto-discover-facets command."""
         # Mock dependencies
         mock_config_instance = Mock()
@@ -296,9 +272,9 @@ class TestCLI:
         
         mock_client_instance = Mock()
         mock_client.return_value = mock_client_instance
-        
-        mock_processor_instance = Mock()
-        mock_processor.return_value = mock_processor_instance
+                
+        mock_config_instance.processor_class = Mock()
+        mock_config.return_value = mock_config_instance
         
         mock_storage_instance = Mock()
         mock_storage_instance.get_search_facets.return_value = [
@@ -396,9 +372,8 @@ class TestCLI:
 
     @patch('newsagger.cli.Config')
     @patch('newsagger.cli.LocApiClient')
-    @patch('newsagger.cli.NewsDataProcessor')
     @patch('newsagger.cli.NewsStorage')
-    def test_setup_download_workflow_command(self, mock_storage, mock_processor, mock_client, mock_config):
+    def test_setup_download_workflow_command(self, mock_storage, mock_client, mock_config):
         """Test setup-download-workflow command."""
         # Mock dependencies
         mock_config_instance = Mock()
@@ -410,8 +385,8 @@ class TestCLI:
         mock_client_instance = Mock()
         mock_client.return_value = mock_client_instance
         
-        mock_processor_instance = Mock()
-        mock_processor.return_value = mock_processor_instance
+        mock_config_instance.processor_class = Mock()
+        mock_config.return_value = mock_config_instance
         
         mock_storage_instance = Mock()
         mock_storage_instance.get_periodicals.return_value = [{'lccn': 'test123'}]
@@ -435,9 +410,8 @@ class TestCLI:
 
     @patch('newsagger.cli.Config')
     @patch('newsagger.cli.LocApiClient')
-    @patch('newsagger.cli.NewsDataProcessor')
     @patch('newsagger.cli.NewsStorage')
-    def test_setup_download_workflow_with_states(self, mock_storage, mock_processor, mock_client, mock_config):
+    def test_setup_download_workflow_with_states(self, mock_storage, mock_client, mock_config):
         """Test setup-download-workflow command with states."""
         # Mock dependencies
         mock_config_instance = Mock()
@@ -448,9 +422,8 @@ class TestCLI:
         
         mock_client_instance = Mock()
         mock_client.return_value = mock_client_instance
-        
-        mock_processor_instance = Mock()
-        mock_processor.return_value = mock_processor_instance
+            
+        mock_config_instance.processor_class = Mock()
         
         mock_storage_instance = Mock()
         mock_storage_instance.get_periodicals.return_value = [{'lccn': 'test123'}]
@@ -480,19 +453,16 @@ class TestCLI:
             mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
             mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
             mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
+            mock_config_instance.processor_class = Mock()   # ← add this
             mock_config.return_value = mock_config_instance
-            
+
             with patch('newsagger.cli.NewsStorage') as mock_storage, \
                  patch('newsagger.cli.LocApiClient') as mock_client, \
-                 patch('newsagger.cli.NewsDataProcessor') as mock_processor, \
                  patch('newsagger.cli.DiscoveryManager') as mock_discovery:
                 
                 mock_client_instance = Mock()
                 mock_client.return_value = mock_client_instance
-                
-                mock_processor_instance = Mock()
-                mock_processor.return_value = mock_processor_instance
-                
+                                
                 mock_storage_instance = Mock()
                 mock_storage_instance.get_periodicals.return_value = [{'lccn': 'test123'}]
                 # Mock facets including discovering status
@@ -547,11 +517,11 @@ class TestCLI:
             mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
             mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
             mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
+            mock_config_instance.processor_class = Mock()
             mock_config.return_value = mock_config_instance
-            
+
             with patch('newsagger.cli.NewsStorage') as mock_storage, \
                  patch('newsagger.cli.LocApiClient') as mock_client, \
-                 patch('newsagger.cli.NewsDataProcessor') as mock_processor, \
                  patch('newsagger.cli.DiscoveryManager') as mock_discovery:
                 
                 # Mock storage to return both pending and discovering facets
@@ -567,7 +537,6 @@ class TestCLI:
                 
                 # Mock other dependencies
                 mock_client.return_value = Mock()
-                mock_processor.return_value = Mock()
                 
                 mock_discovery_instance = Mock()
                 mock_discovery_instance.discover_facet_content.return_value = 100

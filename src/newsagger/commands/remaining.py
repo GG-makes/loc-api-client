@@ -15,7 +15,6 @@ from datetime import datetime, timedelta
 from tqdm import tqdm
 from ..config import Config
 from ..rate_limited_client import LocApiClient, CaptchaHandlingException, GlobalCaptchaManager
-from ..processor import NewsDataProcessor
 from ..storage import NewsStorage
 from ..discovery_manager import DiscoveryManager
 from ..downloader import DownloadProcessor

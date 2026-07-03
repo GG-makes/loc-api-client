@@ -13,8 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 from newsagger.discovery_manager import DiscoveryManager
 from newsagger.storage import NewsStorage
 from newsagger.rate_limited_client import LocApiClient #TODO: replace with ratelimitedclient
-from newsagger.processor import NewsDataProcessor
 from newsagger.api_params import LegacyQueryBuilder
+from newsagger.processor_new import LegacyResponseProcessor, PageInfo
 
 class TestDiscoveryAutomation:
     """Test automated discovery functionality."""
@@ -27,7 +27,7 @@ class TestDiscoveryAutomation:
         
         # Create mock dependencies
         self.mock_api_client = Mock(spec=LocApiClient)
-        self.mock_processor = Mock(spec=NewsDataProcessor)
+        self.mock_processor = Mock(spec=LegacyResponseProcessor)
         
         # Create discovery manager
         self.discovery = DiscoveryManager(
@@ -101,8 +101,7 @@ class TestDiscoveryAutomation:
             'items': mock_pages,
             'totalItems': 2
         }
-        from newsagger.processor import PageInfo
-        self.mock_processor.process_search_response.return_value = [
+        self.mock_processor.parse_pages.return_value = [
             PageInfo(
                 item_id='item1',
                 lccn='sn84038012',
@@ -167,7 +166,7 @@ class TestDiscoveryAutomation:
             'items': [],
             'totalItems': 0
         }
-        self.mock_processor.process_search_response.return_value = []
+        self.mock_processor.parse_pages.return_value = []
         
         # Test discovery
         discovered_count = self.discovery.discover_facet_content(facet_id)
@@ -204,8 +203,7 @@ class TestDiscoveryAutomation:
             'items': mock_pages,
             'totalItems': 20
         }
-        from newsagger.processor import PageInfo
-        self.mock_processor.process_search_response.return_value = [
+        self.mock_processor.parse_pages.return_value = [
             PageInfo(
                 item_id=f'item{i}',
                 lccn='sn84038012',
@@ -267,7 +265,6 @@ class TestDiscoveryAutomation:
         )
         
         # Add some test pages to storage
-        from newsagger.processor import PageInfo
         pages = [
             PageInfo(
                 item_id=f'item{i}',
@@ -311,7 +308,6 @@ class TestDiscoveryAutomation:
         )
         
         # Add some test pages
-        from newsagger.processor import PageInfo
         pages = [
             PageInfo(
                 item_id=f'item{i}',
@@ -399,8 +395,7 @@ class TestDiscoveryAutomation:
         }
         
         self.mock_api_client.search_pages.side_effect = [page1_response, page2_response]
-        from newsagger.processor import PageInfo
-        self.mock_processor.process_search_response.side_effect = [
+        self.mock_processor.parse_pages.side_effect = [
             [PageInfo(
                 item_id=f'item{i}',
                 lccn='sn84038012',
@@ -455,8 +450,7 @@ class TestDiscoveryAutomation:
             'items': [{'id': 'item1', 'title': 'Earthquake News'}],
             'totalItems': 1
         }
-        from newsagger.processor import PageInfo
-        self.mock_processor.process_search_response.return_value = [
+        self.mock_processor.parse_pages.return_value = [
             PageInfo(
                 item_id='item1',
                 lccn='sn84038012',
@@ -499,7 +493,7 @@ class TestDiscoveryAutomation:
         
         # Mock processor
         from newsagger.discovery_manager import DiscoveryManager
-        self.mock_processor.process_newspapers_response.return_value = [
+        self.mock_processor.parse_pages.return_value = [
             {
                 'lccn': 'sn84038012',
                 'title': 'The San Francisco Call',

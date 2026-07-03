@@ -15,7 +15,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 from newsagger.batch_discovery import BatchDiscoveryProcessor
 from newsagger.storage import NewsStorage
 from newsagger.rate_limited_client import LocApiClient, CaptchaHandlingException, GlobalCaptchaManager
-from newsagger.processor import NewsDataProcessor
+from newsagger.processor_new import LocGovResponseProcessor
 from newsagger.api_params import LegacyQueryBuilder
 
 class TestCaptchaHandling:
@@ -24,7 +24,7 @@ class TestCaptchaHandling:
     def setup_method(self):
         """Set up test environment."""
         self.mock_api_client = Mock(spec=LocApiClient)
-        self.mock_processor = Mock(spec=NewsDataProcessor)
+        self.mock_processor = Mock(spec=LocGovResponseProcessor)
 
         # Mock storage with all methods BatchDiscoveryProcessor calls
         self.storage = Mock(spec=NewsStorage)
@@ -99,7 +99,7 @@ class TestCaptchaHandling:
             return mock_issue_details
 
         self.mock_api_client._make_request.side_effect = fake_make_request
-        self.mock_processor.process_page_from_issue.return_value = Mock()
+        self.mock_processor.parse_page_from_issue.return_value = Mock()
 
         with patch('newsagger.batch_discovery.GlobalCaptchaManager') as mock_gcm_class:
             mock_gcm = Mock()
@@ -137,7 +137,7 @@ class TestCaptchaHandling:
             captcha_exception,
             captcha_exception,
         ]
-        self.mock_processor.process_page_from_issue.return_value = Mock()
+        self.mock_processor.parse_page_from_issue.return_value = Mock()
 
         # Capture WARNING+ log output from batch_discovery logger
         log_capture = io.StringIO()

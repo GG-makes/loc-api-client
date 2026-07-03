@@ -11,7 +11,7 @@ from datetime import datetime
 from tqdm import tqdm
 from .rate_limited_client import LocApiClient, CaptchaHandlingException, GlobalCaptchaManager
 from .batch_discovery import BatchDiscoveryProcessor
-from .processor import NewsDataProcessor
+from .processor_new import ResponseProcessor
 from .storage import NewsStorage
 from .api_params import ChroniclingAmericaSearchParams
 from .discovery.facet_processor import (
@@ -24,7 +24,7 @@ from .discovery.facet_processor import (
 class DiscoveryManager:
     """Manages discovery of available content and tracks download progress."""
     
-    def __init__(self, api_client: LocApiClient, processor: NewsDataProcessor, 
+    def __init__(self, api_client: LocApiClient, processor: ResponseProcessor, 
                  storage: NewsStorage, query_builder_class):
         self.api_client = api_client
         self.processor = processor
@@ -447,7 +447,7 @@ class DiscoveryManager:
                     #TODO: Needs replacement
                     response = self.api_client.search_pages(**search_params)
                     self.logger.debug(f"Got API response for facet {facet_id}, processing...")
-                    pages = self.processor.process_search_response(response, deduplicate=True)
+                    pages = self.processor.parse_pages(response, deduplicate=True) 
                     self.logger.debug(f"Processed response for facet {facet_id}, got {len(pages)} pages")
                     
                     if not pages:
@@ -1196,15 +1196,10 @@ class DiscoveryManager:
             
             # Get issue details which contain the actual pages
             issue_details = self.api_client._make_request(issue_endpoint)
-            issue_pages = issue_details.get('pages', [])
             
-            # Collect pages for batch storage
-            batch_pages = []
-            for page_data in issue_pages:
-                # Process page from issue data without individual API calls (much faster!)
-                page = self.processor.process_page_from_issue(page_data, issue_details)
-                if page:
-                    batch_pages.append(page)
+            # Collect pages for batch storage — parse_issue handles resources[0]['files']
+            # traversal and 1-based sequence numbering internally
+            batch_pages = self.processor.parse_issue(issue_details)            
             
             # Store pages in database and enqueue atomically (critical for resume functionality)
             if batch_pages:

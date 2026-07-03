@@ -10,7 +10,6 @@ from typing import List, Dict
 from tqdm import tqdm
 from ..config import Config
 from ..rate_limited_client import LocApiClient, CaptchaHandlingException, GlobalCaptchaManager
-from ..processor import NewsDataProcessor
 from ..storage import NewsStorage
 from ..api_params import LocGovQueryBuilder
 
@@ -26,7 +25,7 @@ def list_newspapers():
     """List available newspapers with filtering options."""
     config = Config()
     client = LocApiClient(**config.get_api_config())
-    processor = NewsDataProcessor()
+    processor = config.processor_class()
     
     click.echo("Fetching newspaper list from Library of Congress...")
     
@@ -49,7 +48,7 @@ def list_newspapers():
         if batch:
             newspapers.extend(batch)
     
-    processed = processor.process_newspapers_response({'newspapers': newspapers})
+    processed = processor.parse_newspapers({'newspapers': newspapers})
     
     # Display summary
     summary = processor.get_newspaper_summary(processed)
@@ -126,7 +125,7 @@ def download_newspaper(lccn, date1, date2, estimate_only):
         return
     config = Config()
     client = LocApiClient(**config.get_api_config())
-    processor = NewsDataProcessor()
+    processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
 
     # Validate date range

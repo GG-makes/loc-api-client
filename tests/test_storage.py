@@ -13,8 +13,7 @@ import gc
 import time
 
 from newsagger.storage import NewsStorage
-from newsagger.processor import NewspaperInfo, PageInfo
-
+from newsagger.processor_new import NewspaperInfo, PageInfo, LegacyResponseProcessor
 
 class TestNewsStorage:
     """Test cases for NewsStorage."""
@@ -55,7 +54,8 @@ class TestNewsStorage:
     
     def test_store_newspapers(self, storage, sample_newspaper_data):
         """Test storing newspaper data."""
-        newspaper = NewspaperInfo.from_api_response(sample_newspaper_data)
+        newspaper = LegacyResponseProcessor().parse_newspapers({'newspapers':
+                                                                [sample_newspaper_data]})[0]        
         newspapers = [newspaper]
         
         inserted = storage.store_newspapers(newspapers)
@@ -77,8 +77,8 @@ class TestNewsStorage:
     
     def test_store_newspapers_duplicate_handling(self, storage, sample_newspaper_data):
         """Test storing duplicate newspapers (should replace)."""
-        newspaper = NewspaperInfo.from_api_response(sample_newspaper_data)
-        
+        newspaper = LegacyResponseProcessor().parse_newspapers({'newspapers': 
+                                                                [sample_newspaper_data]})[0]        
         # Store same newspaper twice
         storage.store_newspapers([newspaper])
         storage.store_newspapers([newspaper])
@@ -92,7 +92,7 @@ class TestNewsStorage:
     
     def test_store_pages(self, storage, sample_page_data):
         """Test storing page data."""
-        page = PageInfo.from_search_result(sample_page_data)
+        page = LegacyResponseProcessor().parse_pages({'items': [sample_page_data]})[0]
         pages = [page]
         
         inserted = storage.store_pages(pages)
@@ -245,7 +245,7 @@ class TestNewsStorage:
     
     def test_mark_page_downloaded(self, storage, sample_page_data):
         """Test marking a page as downloaded."""
-        page = PageInfo.from_search_result(sample_page_data)
+        page = LegacyResponseProcessor().parse_pages({'items': [sample_page_data]})[0]
         storage.store_pages([page])
         
         # Initially not downloaded

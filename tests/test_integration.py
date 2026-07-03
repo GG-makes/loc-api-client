@@ -1,5 +1,11 @@
 """
 Integration tests for newsagger components.
+
+These exercise the wiring client -> processor -> storage against the
+LEGACY Chronicling America API shape. The processor under test is
+LegacyResponseProcessor (from processor_new), which matches the
+legacy-shaped fixtures and endpoints mocked below. loc.gov parsing is
+covered separately by test_response_processor.py and test_live_requests.py.
 """
 
 import pytest
@@ -10,7 +16,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from newsagger.rate_limited_client import RateLimitedRequestManager, LocApiClient, GlobalCaptchaManager
-from newsagger.processor import NewsDataProcessor
+from newsagger.processor_new import LegacyProcessor, NewspaperInfo
 from newsagger.storage import NewsStorage
 from newsagger.config import Config
 from newsagger.api_params import LegacyQueryBuilder, ChroniclingAmericaSearchParams
@@ -39,7 +45,7 @@ class TestIntegration:
         GlobalCaptchaManager._instance = None
         client = LocApiClient(**integration_config.get_api_config())
         client.base_url = 'https://chroniclingamerica.loc.gov'
-        processor = NewsDataProcessor()
+        processor = LegacyProcessor()
         storage = NewsStorage(integration_config.database_path)
 
         yield {
@@ -102,7 +108,7 @@ class TestIntegration:
         api_response = client.get_newspapers()
         
         # 2. Process data
-        newspapers = processor.process_newspapers_response(api_response)
+        newspapers = processor.parse_newspapers(api_response)
         
         # 3. Store in database
         stored_count = storage.store_newspapers(newspapers)
@@ -169,7 +175,7 @@ class TestIntegration:
         api_response = client.search_pages(andtext='earthquake', date1='1906', date2='1906')
         
         # 2. Process results
-        pages = processor.process_search_response(api_response)
+        pages = processor.parse_pages(api_response)
         
         # 3. Store pages
         stored_count = storage.store_pages(pages)
@@ -273,7 +279,7 @@ class TestIntegration:
         
         # Process one batch of results
         for result_batch in client.search_with_faceted_dates(base_query):
-            pages = processor.process_search_response(result_batch)
+            pages = processor.parse_pages(result_batch)
             stored = storage.store_pages(pages)
             total_downloaded += stored
             storage.update_session_progress(session_id, total_downloaded)
@@ -294,7 +300,6 @@ class TestIntegration:
         storage = components['storage']
         
         # Store test newspapers
-        from newsagger.processor import NewspaperInfo
         newspapers = [
             NewspaperInfo(
                 lccn='ca1', title='California Daily',
@@ -329,17 +334,17 @@ class TestIntegration:
         
         # Test processor filtering
         all_papers = storage.get_newspapers()
-        processed_papers = [NewspaperInfo.from_api_response({
-            'lccn': p['lccn'],
-            'title': p['title'],
-            'place_of_publication': json.loads(p['place_of_publication']),  # Convert back from JSON
-            'start_year': str(p['start_year']) if p['start_year'] else None,
-            'end_year': str(p['end_year']) if p['end_year'] else None,
-            'frequency': p['frequency'],
-            'subject': json.loads(p['subject']),
-            'language': json.loads(p['language']),
-            'url': p['url']
-        }) for p in all_papers]
+        processed_papers = [NewspaperInfo(
+            lccn=p['lccn'],
+            title=p['title'],
+            place_of_publication=json.loads(p['place_of_publication']),
+            start_year=p['start_year'],
+            end_year=p['end_year'],
+            frequency=p['frequency'],
+            subject=json.loads(p['subject']),
+            language=json.loads(p['language']),
+            url=p['url'],
+        ) for p in all_papers]
         
         # Filter by criteria - newspapers that overlap with 1950+ (end_year >= 1950)
         recent_papers = processor.filter_newspapers_by_criteria(
@@ -371,11 +376,11 @@ class TestIntegration:
         }
         
         # Process first batch
-        pages1 = processor.process_search_response(batch1, deduplicate=True)
+        pages1 = processor.parse_pages(batch1, deduplicate=True)
         stored1 = storage.store_pages(pages1)
         
         # Process second batch (should deduplicate)
-        pages2 = processor.process_search_response(batch2, deduplicate=True)
+        pages2 = processor.parse_pages(batch2, deduplicate=True)
         stored2 = storage.store_pages(pages2)
         
         assert stored1 == 2  # Both items from first batch
@@ -403,7 +408,7 @@ class TestIntegration:
         }
         
         # Should process valid entries and handle invalid ones gracefully
-        newspapers = processor.process_newspapers_response(invalid_response)
+        newspapers = processor.parse_newspapers(invalid_response)
         stored = storage.store_newspapers(newspapers)
         
         # Should have processed all entries (including invalid ones with empty fields)

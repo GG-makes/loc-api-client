@@ -11,6 +11,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .api_params import LegacyQueryBuilder, LocGovQueryBuilder
+from .processor_new import LegacyProcessor, LocGovProcessor
 
 
 class Config:
@@ -33,9 +34,11 @@ class Config:
         if self.api_version == 'LEGACY':
             self.loc_base_url = r'https://chroniclingamerica.loc.gov/'
             self.query_builder_class = LegacyQueryBuilder
+            self.processor_class = LegacyProcessor
         elif self.api_version == 'LOC_2026':
             self.loc_base_url = r'www.loc.gov/collections/chronicling-america/'
             self.query_builder_class = LocGovQueryBuilder
+            self.processor_class = LocGovProcessor
         else:
             raise ValueError("config api_version must be LEGACY or LOC_2026")   
              

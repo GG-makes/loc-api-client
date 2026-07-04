@@ -46,7 +46,8 @@ class DiscoveryManager:
         
         if max_newspapers:
             # Limited discovery
-            for newspaper in self.api_client.get_newspapers_with_details(max_newspapers):
+            for newspaper in self.api_client.get_newspapers_with_details(
+                self._newspaper_builder(), self.processor, max_newspapers):
                 periodical_data = self._convert_newspaper_to_periodical(newspaper)
                 stored = self.storage.store_periodicals([periodical_data])
                 discovered_count += stored
@@ -63,26 +64,31 @@ class DiscoveryManager:
         
         self.logger.info(f"Periodical discovery completed. Found {discovered_count} periodicals.")
         return discovered_count
-    
-    def _convert_newspaper_to_periodical(self, newspaper: Dict) -> Dict:
-        """Convert API newspaper response to periodical tracking format."""
+        
+    def _convert_newspaper_to_periodical(self, newspaper) -> Dict:
+        """Convert a parsed NewspaperInfo into periodical tracking format."""
         return {
-            'lccn': newspaper.get('lccn'),
-            'title': newspaper.get('title'),
-            'state': newspaper.get('state'),
-            'city': self._extract_city(newspaper.get('place_of_publication', [])),
-            'start_year': self._parse_year(newspaper.get('start_year')),
-            'end_year': self._parse_year(newspaper.get('end_year')),
-            'frequency': newspaper.get('frequency'),
-            'language': self._extract_primary_language(newspaper.get('language', [])),
-            'subject': self._extract_primary_subject(newspaper.get('subject', [])),
-            'url': newspaper.get('url')
+            'lccn': newspaper.lccn,
+            'title': newspaper.title,
+            'state': newspaper.state,
+            'city': newspaper.city,
+            'start_year': newspaper.start_year,
+            'end_year': newspaper.end_year,
+            'frequency': newspaper.frequency,
+            'language': self._extract_primary_language(newspaper.language or []),
+            'subject': self._extract_primary_subject(newspaper.subject or []),
+            'url': newspaper.url,
         }
-    
+        
+    def _newspaper_builder(self):
+        """A builder for the newspaper-list endpoint (search params are unused)."""
+        return self.query_builder_class.from_cli()
+
     def _get_newspapers_in_batches(self, batch_size: int) -> Generator[List[Dict], None, None]:
         """Get all newspapers in batches to avoid memory issues."""
         batch = []
-        for newspaper in self.api_client.get_all_newspapers():
+        for newspaper in self.api_client.get_all_newspapers(
+            self._newspaper_builder(), self.processor):
             batch.append(newspaper)
             if len(batch) >= batch_size:
                 yield batch
@@ -757,15 +763,6 @@ class DiscoveryManager:
         return priority
     
     # Helper methods
-    
-    def _extract_city(self, place_list: List[str]) -> Optional[str]:
-        """Extract city name from place of publication list."""
-        if not place_list:
-            return None
-        
-        # Take first place and extract city (before first comma)
-        place = place_list[0] if isinstance(place_list, list) else str(place_list)
-        return place.split(',')[0].strip() if ',' in place else place.strip()
     
     def _extract_primary_language(self, language_list: List[str]) -> Optional[str]:
         """Extract primary language from language list."""

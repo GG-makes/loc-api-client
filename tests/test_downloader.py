@@ -14,6 +14,7 @@ import requests
 from src.newsagger.downloader import DownloadProcessor
 from src.newsagger.storage import NewsStorage
 from src.newsagger.rate_limited_client import LocApiClient
+from src.newsagger.processor_new import PageInfo
 
 
 class TestDownloadProcessor:

@@ -14,7 +14,7 @@ from newsagger.discovery_manager import DiscoveryManager
 from newsagger.storage import NewsStorage
 from newsagger.rate_limited_client import LocApiClient #TODO: replace with ratelimitedclient
 from newsagger.api_params import LegacyQueryBuilder
-from newsagger.processor_new import LegacyResponseProcessor, PageInfo
+from newsagger.processor_new import LegacyResponseProcessor, PageInfo, NewspaperInfo
 
 class TestDiscoveryAutomation:
     """Test automated discovery functionality."""
@@ -475,46 +475,35 @@ class TestDiscoveryAutomation:
         assert discovered_count == 1
 
     def test_discover_all_periodicals(self):
-        """Test discovering all periodicals."""
-        # Mock API response - both methods used by discovery
-        newspapers_data = [
-            {
-                'lccn': 'sn84038012',
-                'title': 'The San Francisco Call',
-                'state': 'California',
-                'place_of_publication': ['San Francisco, Calif.'],
-                'start_year': '1895',
-                'end_year': '1913',
-                'url': 'https://example.com'
-            }
+        """Test discovering all periodicals from parsed NewspaperInfo objects."""
+        newspapers = [
+            NewspaperInfo(
+                lccn='sn84038012',
+                title='The San Francisco Call',
+                place_of_publication=['California'],
+                start_year=1895,
+                end_year=1913,
+                frequency='Daily',
+                subject=[],
+                language=['English'],
+                url='https://example.com',
+                state='California',
+                city='San Francisco',
+            )
         ]
-        self.mock_api_client.get_all_newspapers.return_value = newspapers_data
-        self.mock_api_client.get_newspapers_with_details.return_value = iter(newspapers_data)
-        
-        # Mock processor
-        from newsagger.discovery_manager import DiscoveryManager
-        self.mock_processor.parse_pages.return_value = [
-            {
-                'lccn': 'sn84038012',
-                'title': 'The San Francisco Call',
-                'state': 'California',
-                'city': 'San Francisco',
-                'start_year': 1895,
-                'end_year': 1913,
-                'frequency': 'Daily',
-                'language': 'English',
-                'subject': 'General News',
-                'url': 'https://example.com'
-            }
-        ]
-        
+        # get_newspapers_with_details now yields NewspaperInfo (builder+processor owned by the client)
+        self.mock_api_client.get_newspapers_with_details.return_value = iter(newspapers)
+
         with patch.object(self.storage, 'store_periodicals') as mock_store:
-            mock_store.return_value = 1  # Mock returning 1 stored periodical
-            
+            mock_store.return_value = 1
             discovered_count = self.discovery.discover_all_periodicals(max_newspapers=1)
-            
+
             assert discovered_count == 1
             mock_store.assert_called_once()
+            # the parsed attributes flow through into the periodical record
+            stored = mock_store.call_args[0][0][0]
+            assert stored['state'] == 'California'
+            assert stored['city'] == 'San Francisco'
 
     def test_create_state_facets(self):
         """Test creating state facets from discovered periodicals."""

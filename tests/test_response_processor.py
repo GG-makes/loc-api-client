@@ -554,6 +554,28 @@ class TestLegacyParseNewspapers:
         result = legacy_processor.parse_newspapers(legacy_newspapers_response)
         assert all(isinstance(n, NewspaperInfo) for n in result)
 
+    def test_parses_state_field(self, legacy_processor, legacy_newspapers_response):
+        """[LEGACY] state field from the 'state' key."""
+        result = legacy_processor.parse_newspapers(legacy_newspapers_response)
+        assert result[0].state == 'California'
+
+    def test_city_none_when_state_field_present(self, legacy_processor, legacy_newspapers_response):
+        """[LEGACY] With an explicit 'state', place becomes [state] and no city is derivable."""
+        result = legacy_processor.parse_newspapers(legacy_newspapers_response)
+        assert result[0].city is None
+
+    def test_splits_city_state_from_place_string(self, legacy_processor):
+        """[LEGACY] Without a 'state' field, city/state split from the free-text place string."""
+        response = {'newspapers': [{
+            'lccn': 'sn111', 'title': 'Example',
+            'place_of_publication': ['Sacramento, Calif.'],
+            'start_year': '1900', 'end_year': '1910',
+            'language': ['English'], 'subject': [],
+            'url': 'https://example.com/',
+        }]}
+        result = legacy_processor.parse_newspapers(response)
+        assert result[0].city == 'Sacramento'
+        assert result[0].state == 'Calif.'
 
 class TestLocGovParseNewspapers:
     """[LOCGOV] parse_newspapers — confirmed loc.gov title list format."""
@@ -611,6 +633,15 @@ class TestLocGovParseNewspapers:
         result = locgov_processor.parse_newspapers(locgov_newspapers_response)
         assert all(isinstance(n, NewspaperInfo) for n in result)
 
+    def test_parses_state_field(self, locgov_processor, locgov_newspapers_response):
+        """[LOCGOV] state field from location_state['label']."""
+        result = locgov_processor.parse_newspapers(locgov_newspapers_response)
+        assert result[0].state == 'California'
+
+    def test_parses_city_from_location_city(self, locgov_processor, locgov_newspapers_response):
+        """[LOCGOV] city field from the location_city list (first entry, lowercase as returned)."""
+        result = locgov_processor.parse_newspapers(locgov_newspapers_response)
+        assert result[0].city == 'san francisco'
 
 class TestLegacyParsePages:
     """[LEGACY] parse_pages — legacy search result format."""

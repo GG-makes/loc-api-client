@@ -64,7 +64,18 @@ class NewsStorage(DatabaseOperationMixin):
             if 'resume_from_page' not in existing_columns:
                 cursor.execute("ALTER TABLE search_facets ADD COLUMN resume_from_page INTEGER DEFAULT 1")
                 self.logger.info("Added resume_from_page column for batch-level resume")
-                
+            
+            # Add state/city columns to newspapers (loc.gov structured location)
+            cursor.execute("PRAGMA table_info(newspapers)")
+            newspaper_columns = [column[1] for column in cursor.fetchall()]
+
+            if 'state' not in newspaper_columns:
+                cursor.execute("ALTER TABLE newspapers ADD COLUMN state TEXT")
+                self.logger.info("Added state column to newspapers")
+
+            if 'city' not in newspaper_columns:
+                cursor.execute("ALTER TABLE newspapers ADD COLUMN city TEXT")
+                self.logger.info("Added city column to newspapers")
             conn.commit()
             
         except Exception as e:
@@ -85,6 +96,8 @@ class NewsStorage(DatabaseOperationMixin):
                     lccn TEXT PRIMARY KEY,
                     title TEXT NOT NULL,
                     place_of_publication TEXT,
+                    state TEXT,
+                    city TEXT,
                     start_year INTEGER,
                     end_year INTEGER,
                     frequency TEXT,
@@ -243,13 +256,15 @@ class NewsStorage(DatabaseOperationMixin):
                 try:
                     conn.execute("""
                         INSERT OR REPLACE INTO newspapers 
-                        (lccn, title, place_of_publication, start_year, end_year, 
+                        (lccn, title, place_of_publication, state, city, start_year, end_year, 
                          frequency, subject, language, url)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         newspaper.lccn,
                         newspaper.title,
                         json.dumps(newspaper.place_of_publication),
+                        newspaper.state,
+                        newspaper.city,
                         newspaper.start_year,
                         newspaper.end_year,
                         newspaper.frequency,
@@ -316,13 +331,19 @@ class NewsStorage(DatabaseOperationMixin):
     
     def get_newspapers(self, state: str = None, language: str = None) -> List[Dict]:
         """Retrieve newspapers with optional filtering."""
+        
         with self._connect() as conn:
             conn.row_factory = sqlite3.Row
             
             query = "SELECT * FROM newspapers"
             params = []
             conditions = []
-            
+            # TODO (Phase 4): filter state via the dedicated `state` column instead of
+            # a place_of_publication LIKE. Deferred until the catalog is repopulated from
+            # live loc.gov data — NewspaperInfo.state is only populated by parse_newspapers,
+            # so rows stored before this migration (and fixtures that build NewspaperInfo
+            # directly without state) have a NULL state column and would filter to nothing.
+            # place_of_publication LIKE remains the compatible path until then.
             if state:
                 conditions.append("place_of_publication LIKE ?")
                 params.append(f'%{state}%')

@@ -103,16 +103,13 @@ class TestIntegration:
             status=200
         )
         
-        # Execute workflow
-        # 1. Fetch from API
-        api_response = client.get_newspapers()
-        
-        # 2. Process data
-        newspapers = processor.parse_newspapers(api_response)
-        
-        # 3. Store in database
+        # Execute workflow: the client delegates pagination to the builder and
+        # parsing to the processor, yielding NewspaperInfo directly.
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        newspapers = list(client.get_all_newspapers(builder, processor))
+
         stored_count = storage.store_newspapers(newspapers)
-        
+
         # Verify results
         assert stored_count == 2
         assert len(newspapers) == 2
@@ -441,7 +438,7 @@ class TestIntegration:
         
         # Should handle rate limiting and eventually succeed
         with patch('time.sleep'):  # Skip actual delays in test
-            result = client.get_newspapers()
-        
+            result = client._make_request('newspapers.json')
+
         assert result == {'newspapers': []}
-        assert len(responses.calls) == 2  # First call gets 429, second succeeds
+        assert len(responses.calls) == 2

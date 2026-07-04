@@ -445,6 +445,33 @@ class LegacyQueryBuilder(QueryBuilder):
             'rows': min(rows, 1000),  # Respect API limits
         }
 
+    def build_newspaper_list(self, page: int = 1, rows: int = 1000) -> dict:
+        """
+        Params for the legacy newspapers.json endpoint. Mirrors the original
+        get_newspapers params exactly (format/page/rows) — unchanged from
+        pre-migration behavior. Paginate via page/totalPages.
+        """
+        return {
+            'format': 'json',
+            'page': page,
+            'rows': min(rows, 1000),
+        }
+        
+    def fetch_all_newspapers(self, fetch) -> Generator[dict, None, None]:
+        """
+        Yield each page of the legacy newspapers.json response, paginating via
+        page/totalPages — the same loop shape as the pre-migration
+        get_all_newspapers. Callers parse each response through
+        ResponseProcessor.parse_newspapers.
+        """
+        page = 1
+        while True:
+            response = fetch(self.newspaper_list_url, self.build_newspaper_list(page=page))
+            yield response
+            if not response.get('newspapers') or page >= response.get('totalPages', 1):
+                break
+            page += 1
+
     def _date_filter_type(self, date1: str, date2: str) -> str:
         """
         Tells chronam how to interpret date1/date2 (see _solrize_date).
@@ -576,7 +603,7 @@ class LocGovQueryBuilder(QueryBuilder):
     @property
     def batch_list_url(self) -> str:
         return "https://www.loc.gov/collections/chronicling-america/datasets/batch-summary/"
-    
+            
     def build_batch_list(self) -> dict:
         """
         Params for the loc.gov batch-summary endpoint. fo=json is mandatory,
@@ -587,6 +614,33 @@ class LocGovQueryBuilder(QueryBuilder):
         Batch list response section.
         """
         return {'fo': 'json'}
+    
+    def build_newspaper_list(self) -> dict:
+        """
+        Params for the loc.gov titles endpoint. fo=json is required (same as
+        batch-summary). c sets page size; confirmed live 2026-07-04 that titles/
+        honours c up to at least the advertised perpage_options max of 150
+        (of=4685 total -> ~32 pages) and the pagination.next cursor preserves c
+        across pages. Pagination itself is handled by fetch_all_newspapers.
+        """
+        return {'fo': 'json', 'c': 150}
+
+    def fetch_all_newspapers(self, fetch) -> Generator[dict, None, None]:
+        """
+        Yield each page of the loc.gov titles response, following the
+        pagination.next cursor until it is absent — the same mechanism as
+        paginate_search. The next URL carries c= forward, so the page size from
+        build_newspaper_list persists. Callers parse each response through
+        ResponseProcessor.parse_newspapers.
+        """
+        response = fetch(self.newspaper_list_url, self.build_newspaper_list())
+        yield response
+        while True:
+            next_url = response.get('pagination', {}).get('next')
+            if not next_url:
+                break
+            response = fetch(next_url)
+            yield response
 
     @classmethod
     def from_cli(
@@ -687,6 +741,7 @@ class LocGovQueryBuilder(QueryBuilder):
             "at": "results,pagination",
             "c": min(self.params.rows, 1000),
         }
+        
         # Search text and operator
         if self.params.search_text:
             params["qs"] = self.params.search_text

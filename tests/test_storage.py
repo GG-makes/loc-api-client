@@ -719,3 +719,28 @@ class TestNewsStorage:
             storage.store_page('page1', 'sn123', 'Test', 'invalid-date', 1, 1, 'https://example.com')
         except Exception:
             pass  # Expected to handle gracefully
+
+    def test_migration_adds_newspaper_state_city_columns(self, temp_db):
+        """An existing newspapers table without state/city gains them on re-init."""
+        # First init builds the full current schema (so search_facets exists).
+        NewsStorage(temp_db)
+
+        # Simulate a pre-enrichment newspapers table: drop and recreate without state/city.
+        with closing(sqlite3.connect(temp_db)) as conn:
+            conn.execute("DROP TABLE newspapers")
+            conn.execute("""
+                CREATE TABLE newspapers (
+                    lccn TEXT PRIMARY KEY, title TEXT NOT NULL,
+                    place_of_publication TEXT, start_year INTEGER, end_year INTEGER,
+                    frequency TEXT, subject TEXT, language TEXT, url TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+
+        # Re-init runs _migrate_database against the now-old newspapers table.
+        NewsStorage(temp_db)
+
+        with closing(sqlite3.connect(temp_db)) as conn:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(newspapers)").fetchall()]
+        assert 'state' in cols and 'city' in cols

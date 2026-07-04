@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch, MagicMock
 import threading
 from src.newsagger.rate_limited_client import RateLimitedRequestManager, LocApiClient, GlobalCaptchaManager
 from src.newsagger.api_params import LegacyQueryBuilder, ChroniclingAmericaSearchParams
+from newsagger.processor_new import LegacyResponseProcessor
 
 class TestRateLimitedRequestManager:
     """Test cases for RateLimitedRequestManager."""
@@ -123,29 +124,30 @@ class TestLocApiClient:
         assert client.rate_limiter.max_retries == 5
         assert hasattr(client, 'rate_limiter')
     
-    @responses.activate  
+    @responses.activate
     def test_get_all_newspapers(self):
-        """Test getting all newspapers with pagination."""
-        # Mock first page
+        """Test getting all newspapers: client delegates to the builder and parses."""
         responses.add(
             responses.GET,
             'https://chroniclingamerica.loc.gov/newspapers.json',
             json={
                 'newspapers': [
                     {'lccn': 'sn123', 'title': 'Test Paper 1'},
-                    {'lccn': 'sn456', 'title': 'Test Paper 2'}
-                ]
+                    {'lccn': 'sn456', 'title': 'Test Paper 2'},
+                ],
+                'totalPages': 1,
             },
-            status=200
+            status=200,
         )
-        
+
         client = LocApiClient()
-        newspapers = list(client.get_all_newspapers())
-        
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        newspapers = list(client.get_all_newspapers(builder, LegacyResponseProcessor()))
+
         assert len(newspapers) == 2
-        assert newspapers[0]['lccn'] == 'sn123'
-        assert newspapers[1]['lccn'] == 'sn456'
-    
+        assert newspapers[0].lccn == 'sn123'
+        assert newspapers[1].lccn == 'sn456'
+
     @responses.activate
     def test_search_pages_with_facets(self):
         """Test search with date facets."""

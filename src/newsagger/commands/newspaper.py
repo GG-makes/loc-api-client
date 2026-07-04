@@ -26,33 +26,17 @@ def list_newspapers():
     config = Config()
     client = LocApiClient(**config.get_api_config())
     processor = config.processor_class()
-    
+    builder = config.query_builder_class.from_cli()
+
     click.echo("Fetching newspaper list from Library of Congress...")
-    
-    # Process newspapers in batches for better memory efficiency and progress tracking
-    newspapers = []
-    batch_size = 100
-    
+
+    processed = []
     with tqdm(desc="Loading newspapers") as pbar:
-        batch = []
-        for newspaper in client.get_all_newspapers():
-            batch.append(newspaper)
+        for newspaper in client.get_all_newspapers(builder, processor):
+            processed.append(newspaper)
             pbar.update(1)
-            
-            # Process in batches to avoid memory issues with large datasets
-            if len(batch) >= batch_size:
-                newspapers.extend(batch)
-                batch = []
-        
-        # Process remaining newspapers
-        if batch:
-            newspapers.extend(batch)
-    
-    processed = processor.parse_newspapers({'newspapers': newspapers})
-    
-    # Display summary
-    summary = processor.get_newspaper_summary(processed)
-    
+
+    summary = processor.get_newspaper_summary(processed)    
     click.echo(f"\n📰 Found {summary['total_newspapers']} newspapers")
     
     if summary.get('states'):

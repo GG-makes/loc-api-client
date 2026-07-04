@@ -614,42 +614,20 @@ class LocApiClient:
     def _make_request(self, endpoint: str, params: Optional[Dict] = None) -> Dict:
         """Route all requests through the centralized rate limiter."""
         return self.rate_limiter._make_request(endpoint, params)
-    
-    def get_newspapers(self, page: int = 1, rows: int = 1000) -> Dict:
-        """Get list of newspaper titles with up to 1000 per page."""
-        # Limit to recommended max of 1000 items per page
-        # TODO: MIGRATION. Needs to be hooked up to parse_newspapers
-        params = {
-            'format': 'json',
-            'page': page,
-            'rows': rows
-        }
-        return self._make_request('newspapers.json', params)
-    
-    def get_all_newspapers(self) -> Generator[Dict, None, None]:
-        """Generator to fetch all newspapers with pagination."""
         
-        page = 1
-        while True:
-            data = self.get_newspapers(page=page)
-            newspapers = data.get('newspapers', [])
-            
-            if not newspapers:
-                break
-                
-            for newspaper in newspapers:
-                yield newspaper
-                
-            page += 1
-            
-            # Check if we've reached the end
-            if page > data.get('totalPages', 1):
-                break
-    
-    def get_newspapers_with_details(self, max_newspapers: int = None) -> Generator[Dict, None, None]:
-        """Get newspapers with additional details."""
+    def get_all_newspapers(self, builder, processor) -> Generator:
+        """
+        Yield every newspaper across all pages as NewspaperInfo. The builder owns
+        pagination (per-API); the processor owns field normalization. Replaces the
+        legacy-only newspapers.json loop.
+        """
+        for response in builder.fetch_all_newspapers(self._make_request):
+            yield from processor.parse_newspapers(response)
+
+    def get_newspapers_with_details(self, builder, processor, max_newspapers: int = None) -> Generator:
+        """Limit-aware wrapper over get_all_newspapers."""
         count = 0
-        for newspaper in self.get_all_newspapers():
+        for newspaper in self.get_all_newspapers(builder, processor):
             if max_newspapers and count >= max_newspapers:
                 break
             yield newspaper

@@ -73,16 +73,7 @@ Investigation complete and current as of June 18, 2026. Historical responses and
 
 ### Implementation Status (Base URL and Endpoint)
 
-Of the three endpoint pairs above, only **Page search** is currently modeled
-in api_params.py — LegacyQueryBuilder/LocGovQueryBuilder's base_url property
-and build() method cover its "where" and "what" for both API versions.
-
-**Newspaper list** and **Batch list** are not yet represented on either
-builder class. LocApiClient.get_newspapers/get_batches still construct their
-own (legacy-only) endpoint and params inline, with no new-API equivalent
-wired in. This is the next gap to close before LocApiClient's three list/search
-methods can all delegate to a builder uniformly, the way search_pages
-partially does already via paginate_search.
+Of the three endpoint pairs, **Page search** and **Batch list** are modeled on both builders and delegated to by LocApiClient (search/paginate_search and get_all_batches). **Newspaper list** is only half-modeled: newspaper_list_url exists on both builders, but there's no build_newspaper_list() and LocApiClient.get_newspapers still constructs its legacy newspapers.json request inline. Closing that gap — adding build_newspaper_list() to both builders and routing get_newspapers through it — is the remaining work before all three list/search methods delegate uniformly.
 
 ### Parameter Mapping
 
@@ -252,6 +243,8 @@ Key fields — note mixed dict/list structure:
 | `number_first_issue` | dict | `{"label": "1847-03-03", "url": "..."}` — start date |
 | `number_last_issue` | dict | `{"label": "1869-09-29", "url": "..."}` — end date |
 | `number_issue_count` | dict | `{"label": "254", "value": "254"}` |
+
+NewspaperInfo carries state and city as dedicated fields: the loc.gov titles response supplies them structurally (location_state.label, location_city), a fidelity gain over the legacy free-text place_of_publication strings, which can only be split into city/state heuristically.
 
 **Batch list response** (`collections/chronicling-america/datasets/batch-summary/`)
 
@@ -470,22 +463,46 @@ The goal is to maintain compatibility across supported development environments 
 ## Phase 2: Refactoring
 
 - [x] Introduce centralised query construction logic
+      (LegacyQueryBuilder / LocGovQueryBuilder)
+- [x] Separate API-specific response handling concerns from application workflows (processor_new ResponseProcessor hierarchy; legacy processor.py removed 2026-07-03)
 - [ ] Remove assumptions tied only to the retired API
+    - [ ] Newspaper list: add build_newspaper_list +    
+    fetch_all_newspapers to both builders; route client get_all_newspapers through the builder, yielding NewspaperInfo (currently legacy-only newspapers.json, rate_limited_client.py get_newspapers)
+    - [ ] Probe titles/?fo=json&c=150 to confirm the per-page cap
+          (perpage_options advertises up to 150) before baking c into
+          build_newspaper_list; otherwise use the 25/page next-cursor
+    - [ ] get_newspaper_issues still hits retired lccn/{lccn}.json
+          (rate_limited_client.py:660) — migrate to loc.gov issue detail
 - [ ] Separate API-specific query concerns from application workflows
-- [ ] Separate API-specific response handling concerns from application workflows
+    - [ ] discovery_manager._convert_newspaper_to_periodical and
+          list_newspapers must consume NewspaperInfo, not raw legacy dicts
 
 ## Phase 3: Validation
 
 - [ ] Add migration regression tests
+    - [ ] Builder unit tests for build_newspaper_list / fetch_all_newspapers
+          (legacy page/totalPages vs loc.gov pagination.next termination)
 - [ ] Validate discovery workflows
 - [ ] Validate ingestion workflows
+    - [ ] BLOCKED on item-detail enrichment (not yet built). loc.gov search
+          results carry no PDF/JP2 URLs — confirmed by TestLocGovImageUrlsLive
+          — so downloads produce no files until this lands:
+        - [ ] add fulltext_url column + PageInfo field
+        - [ ] enrich_from_detail on ResponseProcessor (needs_detail_fetch /
+              detail_url / enrich_from_detail; legacy no-ops, loc.gov reads
+              resource.pdf / resource.image / resource.fulltext_file)
+        - [ ] wire DownloadProcessor._download_page to make the item-detail
+              call when pdf_url is NULL (lazy enrichment)
 
 ## Phase 4: Cleanup
 
 - [ ] Remove legacy-specific CLI commands
 - [ ] Remove obsolete code paths
 - [ ] Update user documentation
-
+- [ ] Resolve deferred, non-blocking TODOs: download_newspaper
+      --estimate-only, search_text (get_count vs paginate), tui_monitor
+      (timeout NameError; cross-process rate-limit singleton),
+      merge_databases phantom columns (ocr_url / thumbnail_url)
 ---
 
 # Design Principles

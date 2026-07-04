@@ -177,6 +177,8 @@ class NewspaperInfo:
     subject: List[str]
     language: List[str]
     url: str
+    state: Optional[str] = None # New from post Aug 2025 api
+    city: Optional[str] = None # New from post Aug 2025 api
 
     @staticmethod
     def _parse_year(year_str: Optional[str]) -> Optional[int]:
@@ -487,6 +489,14 @@ class LegacyResponseProcessor(ResponseProcessor):
                 continue
             try:
                 place = [item['state']] if item.get('state') else item.get('place_of_publication', [])
+                # Legacy exposes only free-text "City, ST" place strings; split heuristically.
+                first_place = place[0] if place else ''
+                if ',' in first_place:
+                    city = first_place.split(',')[0].strip()
+                    state = first_place.split(',')[-1].strip()
+                else:
+                    city = None
+                    state = item.get('state') or (first_place or None)
                 results.append(NewspaperInfo(
                     lccn=item.get('lccn', ''),
                     title=item.get('title', ''),
@@ -497,6 +507,8 @@ class LegacyResponseProcessor(ResponseProcessor):
                     subject=item.get('subject', []),
                     language=item.get('language', []),
                     url=item.get('url', ''),
+                    state=state,
+                    city=city,
                 ))
             except Exception:
                 logger.warning(f"Failed to parse legacy newspaper item: {item.get('lccn')}")
@@ -732,11 +744,18 @@ class LocGovResponseProcessor(ResponseProcessor):
                 # location_state is a dict with 'label' key (Title Case)
                 loc_state = item.get('location_state', {})
                 if isinstance(loc_state, dict):
-                    place = [loc_state.get('label', '')] if loc_state.get('label') else []
+                    state = loc_state.get('label') or None
+                    place = [state] if state else []
                 elif isinstance(loc_state, list):
                     place = loc_state
+                    state = loc_state[0] if loc_state else None
                 else:
                     place = []
+                    state = None
+
+                # location_city is a plain list of lowercase strings
+                loc_city = item.get('location_city', [])
+                city = loc_city[0] if isinstance(loc_city, list) and loc_city else None
 
                 # language is a dict with 'label' key
                 lang = item.get('language', {})
@@ -770,6 +789,8 @@ class LocGovResponseProcessor(ResponseProcessor):
                     subject=[],
                     language=language,
                     url=item.get('url', '') or item.get('id', ''),
+                    state=state,
+                    city=city,
                 ))
             except Exception:
                 logger.warning(f"Failed to parse loc.gov newspaper item: {item.get('id')}")

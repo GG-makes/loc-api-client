@@ -916,3 +916,86 @@ class TestBatchListing:
 
         result = list(builder.fetch_all_batches(fake_fetch))
         assert result == [{'batch': 'only'}]
+
+    def test_legacy_build_newspaper_list_params(self):
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder.build_newspaper_list(page=2, rows=50) == {
+            'format': 'json', 'page': 2, 'rows': 50,
+        }
+
+    def test_legacy_build_newspaper_list_caps_rows(self):
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder.build_newspaper_list(rows=5000)['rows'] == 1000
+
+    def test_locgov_build_newspaper_list_sets_page_size(self):
+        """fo=json required; c sets page size (confirmed live 2026-07-04, cap 150)."""
+        builder = LocGovQueryBuilder(ChroniclingAmericaSearchParams())
+        assert builder.build_newspaper_list() == {'fo': 'json', 'c': 150}
+
+    def test_fetch_all_newspapers_legacy_follows_totalpages(self):
+        """Legacy: pages via page param, stops at totalPages. Yields whole responses."""
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+        pages = [
+            {'newspapers': [{'lccn': 'a'}], 'totalPages': 2},
+            {'newspapers': [{'lccn': 'b'}], 'totalPages': 2},
+        ]
+        calls = []
+
+        def fake_fetch(url, params):
+            calls.append(params['page'])
+            return pages[params['page'] - 1]
+
+        result = list(builder.fetch_all_newspapers(fake_fetch))
+        assert calls == [1, 2]
+        assert result == pages
+
+    def test_fetch_all_newspapers_legacy_stops_on_empty(self):
+        """An empty page terminates the loop, guarding a lying totalPages."""
+        builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams())
+
+        def fake_fetch(url, params):
+            if params['page'] == 1:
+                return {'newspapers': [{'lccn': 'only'}], 'totalPages': 99}
+            return {'newspapers': [], 'totalPages': 99}
+
+        result = list(builder.fetch_all_newspapers(fake_fetch))
+        # page 1 (data) and the empty page 2 are both yielded; page 3 is never fetched
+        assert [r['newspapers'] for r in result] == [[{'lccn': 'only'}], []]
+
+    def test_fetch_all_newspapers_locgov_follows_next(self):
+        """loc.gov: follows pagination.next; cursor call passes only the URL."""
+        builder = LocGovQueryBuilder(ChroniclingAmericaSearchParams())
+        calls = []
+
+        def fake_fetch(url, params=None):
+            calls.append((url, params))
+            if url == builder.newspaper_list_url:
+                return {'results_page': 1, 'pagination': {'next': 'CURSOR_2'}}
+            if url == 'CURSOR_2':
+                return {'results_page': 2, 'pagination': {'next': None}}
+            raise AssertionError(f"unexpected url {url}")
+
+        result = list(builder.fetch_all_newspapers(fake_fetch))
+        assert calls == [
+            (builder.newspaper_list_url, {'fo': 'json', 'c': 150}),
+            ('CURSOR_2', None),
+        ]
+        assert [r['results_page'] for r in result] == [1, 2]
+
+    def test_fetch_all_newspapers_locgov_single_page_when_no_next(self):
+        builder = LocGovQueryBuilder(ChroniclingAmericaSearchParams())
+        calls = []
+
+        def fake_fetch(url, params=None):
+            calls.append((url, params))
+            return {'results_page': 1, 'pagination': {'next': None}}
+
+        result = list(builder.fetch_all_newspapers(fake_fetch))
+        assert calls == [(builder.newspaper_list_url, {'fo': 'json', 'c': 150})]
+        assert len(result) == 1
+
+    def test_fetch_all_newspapers_locgov_stops_when_pagination_absent(self):
+        """No pagination key at all → single page, no crash."""
+        builder = LocGovQueryBuilder(ChroniclingAmericaSearchParams())
+        result = list(builder.fetch_all_newspapers(lambda url, params=None: {'results_page': 1}))
+        assert len(result) == 1

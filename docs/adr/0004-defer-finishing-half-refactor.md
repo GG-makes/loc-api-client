@@ -30,6 +30,7 @@ of migrated code exercised it).
   MIGRATION.md Phase 4) instead of in anyone's memory.
 - Known-broken features remain shipped on the branch; users can invoke
   --estimate-only or search_text and get misleading behaviour today.
+  Exception: ADR 0006, when the new API structurally can't support a feature's access pattern
 - The Phase 4 backlog grows and must actually be burned down, or this becomes
   permanent deferral.
 

@@ -174,58 +174,19 @@ class TestLocApiClient:
         assert len(result['items']) == 1
         assert result['items'][0]['id'] == 'item1'
     
-    @responses.activate
-    def test_get_newspaper_issues(self):
-        """Test getting newspaper issues."""
-        responses.add(
-            responses.GET,
-            'https://chroniclingamerica.loc.gov/lccn/sn123.json',
-            json={
-                'issues': [
-                    {'date_issued': '1906-04-18', 'url': 'test1'},
-                    {'date_issued': '1906-04-19', 'url': 'test2'}
-                ]
-            },
-            status=200
-        )
-        
-        client = LocApiClient()
-        result = client.get_newspaper_issues('sn123')
-        
-        assert 'issues' in result
-        assert len(result['issues']) == 2
-    
+    @pytest.mark.skip(
+        reason="No client page-metadata method yet — blocked on item-detail enrichment "
+               "(ADR 0003 / MIGRATION.md Phase 3). Previously called the retired "
+               "get_newspaper_issues and asserted issue structure, not page metadata."
+    )
     @responses.activate
     def test_get_page_metadata(self):
-        """Test getting page metadata."""
-        responses.add(
-            responses.GET,
-            'https://chroniclingamerica.loc.gov/lccn/sn123.json',
-            json={
-                'issues': [
-                    {
-                        'date_issued': '1906-04-18',
-                        'edition': 1,
-                        'pages': [
-                            {
-                                'sequence': 1,
-                                'title': 'Test Page',
-                                'pdf': 'https://test.com/page.pdf'
-                            }
-                        ]
-                    }
-                ]
-            },
-            status=200
-        )
-        
-        client = LocApiClient()
-        # Note: rate_limited_client doesn't have get_page_metadata, use get_newspaper_issues
-        result = client.get_newspaper_issues('sn123')
-        
-        # Since we're using get_newspaper_issues, check for issues structure
-        assert 'issues' in result
-        assert len(result['issues']) == 1
+        """
+        TODO (Phase 3): once a page item-detail fetch exists (?fo=json on a page URL),
+        assert it parses resource.pdf / resource.image / pagination.current into a
+        PageInfo via parse_page_details. Do NOT reintroduce get_newspaper_issues.
+        """
+        pass
             
     @responses.activate
     def test_get_count_no_results(self):

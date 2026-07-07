@@ -102,21 +102,17 @@ class TestBatchDiscoveryCaptchaHandling:
         mock_api_client._make_request.side_effect = mock_make_request
         mock_api_client.base_url = "example.com"
         
-        # Mock processor to track pages
-        def mock_process_page(page_data, issue_details):
-            page_id = page_data['url'].split('/')[-1]
-            discovered_pages.append(page_id)
-            return {
-                'item_id': page_id,
-                'lccn': 'sn12345',
-                'title': 'Test Paper',
-                'date': '1900-01-01',
-                'edition': 1,
-                'sequence': page_data.get('sequence', 1),
-                'page_url': page_data['url']
-            }
-        
-        mock_processor.process_page_from_issue.side_effect = mock_process_page
+        # Mock processor.parse_issue to return two pages per issue and track them,
+        # so the retried issue's pages are observed after CAPTCHA recovery.
+        def mock_parse_issue(issue_details):
+            pages = []
+            for seq in (1, 2):
+                page_id = f'seq-{seq}'
+                discovered_pages.append(page_id)
+                pages.append({'item_id': page_id, 'sequence': seq})
+            return pages
+
+        mock_processor.parse_issue.side_effect = mock_parse_issue
         
         # Mock storage methods
         mock_storage.store_pages.side_effect = lambda pages: len(pages)
@@ -227,10 +223,10 @@ class TestBatchDiscoveryCaptchaHandling:
         
         mock_api_client._make_request.side_effect = mock_make_request
         
-        def mock_process_page(page_data, issue_details):
-            return {'item_id': page_data['url'].split('/')[-1]}
+        def mock_parse_issue(issue_details):
+            return [{'item_id': 'page1'}]
         
-        mock_processor.process_page_from_issue.side_effect = mock_process_page
+        mock_processor.parse_issue.side_effect = mock_parse_issue
         mock_storage.store_pages.side_effect = lambda pages: len(pages)
         mock_storage.get_batch_discovery_session.return_value = None
         mock_storage.count_issue_pages.return_value = 0  # No existing pages

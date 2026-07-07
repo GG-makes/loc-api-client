@@ -149,15 +149,11 @@ class BatchDiscoveryProcessor:
             
             # Get issue details which contain the actual pages
             issue_details = self.api_client._make_request(issue_endpoint)
-            issue_pages = issue_details.get('pages', [])
-            
-            # Collect pages for batch storage
-            batch_pages = []
-            for page_data in issue_pages:
-                # Process page from issue data without individual API calls (much faster!)
-                page = self.processor.process_page_from_issue(page_data, issue_details)
-                if page:
-                    batch_pages.append(page)
+
+            # Collect pages for batch storage. parse_issue handles the per-API
+            # structure (loc.gov resources[0]['files']; legacy issue['pages']) and
+            # sequence numbering internally — no per-page API calls needed.
+            batch_pages = self.processor.parse_issue(issue_details)
             
             # Store pages in database and enqueue atomically (critical for resume functionality)
             if batch_pages:

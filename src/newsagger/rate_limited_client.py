@@ -632,12 +632,7 @@ class LocApiClient:
                 break
             yield newspaper
             count += 1
-    
-    def get_newspaper_issues(self, lccn: str) -> Dict:
-        """Get issues for a specific newspaper by LCCN."""
-        # TODO: Migration. constructs lccn/{lccn}.json style URLs
-        endpoint = f'lccn/{lccn}.json'
-        return self._make_request(endpoint)
+
     
     def search_pages(self, **params) -> Dict:
         """

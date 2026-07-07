@@ -556,16 +556,6 @@ class TestDiscoveryAutomation:
                 assert summary['discovery_stats']['total_periodicals'] == 5
                 assert len(summary['next_downloads']) == 1
 
-    def test_discover_periodical_issues_error_handling(self):
-        """Test error handling in issue discovery."""
-        # Mock API to raise an exception
-        self.mock_api_client.get_newspaper_issues.side_effect = Exception("API Error")
-        
-        issues_count = self.discovery.discover_periodical_issues('sn123')
-        
-        # Should return 0 on error and not crash
-        assert issues_count == 0
-
     def test_create_date_range_facets_with_estimation(self):
         """Test creating date facets with item estimation."""
         # Test the simpler case without estimation to avoid mocking complexity

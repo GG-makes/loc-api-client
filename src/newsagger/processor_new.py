@@ -647,6 +647,22 @@ class LegacyResponseProcessor(ResponseProcessor):
         except Exception as e:
             logger.error(f"Failed to parse legacy page from issue: {e}")
             return None
+    
+    def parse_issue(self, issue_details: Dict) -> List[PageInfo]:
+        """
+        Parse all pages from a legacy issue detail response.
+
+        Legacy issue details carry pages under the 'pages' key, each a dict with
+        'url'/'sequence'. Mirrors LocGovResponseProcessor.parse_issue, which reads
+        the loc.gov resources[0]['files'] structure instead. Completes the
+        parse_issue interface so callers (batch discovery) work on either API.
+        """
+        pages = []
+        for page_data in issue_details.get('pages', []):
+            page = self.parse_page_from_issue(page_data, issue_details)
+            if page:
+                pages.append(page)
+        return pages
 
 class LocGovResponseProcessor(ResponseProcessor):
     """

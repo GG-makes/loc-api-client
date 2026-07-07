@@ -464,46 +464,76 @@ The goal is to maintain compatibility across supported development environments 
 
 - [x] Introduce centralised query construction logic
       (LegacyQueryBuilder / LocGovQueryBuilder)
-- [x] Separate API-specific response handling concerns from application workflows (processor_new ResponseProcessor hierarchy; legacy processor.py removed 2026-07-03)
+- [x] Separate API-specific response handling concerns from application
+      workflows (processor_new ResponseProcessor hierarchy)
 - [ ] Remove assumptions tied only to the retired API
-    - [ ] Newspaper list: add build_newspaper_list +    
-    fetch_all_newspapers to both builders; route client get_all_newspapers through the builder, yielding NewspaperInfo (currently legacy-only newspapers.json, rate_limited_client.py get_newspapers)
-    - [ ] Probe titles/?fo=json&c=150 to confirm the per-page cap
-          (perpage_options advertises up to 150) before baking c into
-          build_newspaper_list; otherwise use the 25/page next-cursor
-    - [ ] get_newspaper_issues still hits retired lccn/{lccn}.json
-          (rate_limited_client.py:660) — migrate to loc.gov issue detail
+    - [x] Newspaper list: build_newspaper_list + fetch_all_newspapers on
+          both builders; client get_all_newspapers yields NewspaperInfo
+    - [x] Confirmed titles/?fo=json&c=150 live; baked c=150 into build_newspaper_list
+    - [x] NewspaperInfo carries structured state/city, persisted to newspapers +
+          periodicals tables
+    - [x] Batch discovery bulk path FIXED: BatchDiscoveryProcessor.
+          process_issue_from_batch now uses processor.parse_issue (was calling
+          the removed process_page_from_issue + reading legacy issue['pages'] →
+          silent zero on loc.gov). Added LegacyResponseProcessor.parse_issue to
+          complete the interface.
+    - [x] Per-title issue discovery REMOVED, not migrated (ADR 0006):
+          get_newspaper_issues + discover_periodical_issues. loc.gov has no
+          per-title issues endpoint; issue enumeration is batch-based. Its
+          periodical_issues storage cluster is intentionally retained (inert,
+          reusable if the feature is rebuilt on the batch path).
+    - [ ] search_pages: retire the legacy shim (rate_limited_client.py:642).
+          Live under discover_facet_content → process_captcha_recovery + CLI
+          auto_discover_facets / setup_download_workflow / retry_failed_facets /
+          test_discovery. Route through search(builder) / paginate_search(builder).
 - [ ] Separate API-specific query concerns from application workflows
-    - [ ] discovery_manager._convert_newspaper_to_periodical and
-          list_newspapers must consume NewspaperInfo, not raw legacy dicts
+    - [x] discovery_manager._convert_newspaper_to_periodical and list_newspapers
+          consume NewspaperInfo, not raw legacy dicts
+    - [ ] discover_facet_content still calls the legacy search_pages shim
+          (discovery_manager.py:454) — folds into the search_pages item above
 
 ## Phase 3: Validation
 
 - [ ] Add migration regression tests
-    - [ ] Builder unit tests for build_newspaper_list / fetch_all_newspapers
-          (legacy page/totalPages vs loc.gov pagination.next termination)
-- [ ] Validate discovery workflows
+    - [x] Builder unit tests for build_newspaper_list / fetch_all_newspapers
+    - [x] parse_newspapers state/city assertions; storage migration + round-trip
+    - [x] Batch discovery test reaching parse_issue on a loc.gov issue shape
+          (test_batch_discovery.py) — the coverage gap that let the broken
+          call slip past a green suite
+    - [ ] Rewrite test_get_page_metadata (currently a skipped Phase 3
+          placeholder) once a page item-detail fetch exists
+- [ ] Validate discovery workflows — blocked on search_pages migration
 - [ ] Validate ingestion workflows
-    - [ ] BLOCKED on item-detail enrichment (not yet built). loc.gov search
-          results carry no PDF/JP2 URLs — confirmed by TestLocGovImageUrlsLive
-          — so downloads produce no files until this lands:
-        - [ ] add fulltext_url column + PageInfo field
-        - [ ] enrich_from_detail on ResponseProcessor (needs_detail_fetch /
-              detail_url / enrich_from_detail; legacy no-ops, loc.gov reads
-              resource.pdf / resource.image / resource.fulltext_file)
-        - [ ] wire DownloadProcessor._download_page to make the item-detail
-              call when pdf_url is NULL (lazy enrichment)
+    - [ ] BLOCKED on item-detail enrichment (not yet built):
+        - [ ] fulltext_url column + PageInfo field
+        - [ ] enrich_from_detail on ResponseProcessor
+        - [ ] wire DownloadProcessor._download_page lazy enrichment
 
 ## Phase 4: Cleanup
 
+- [ ] Remove dead / duplicated code (graph-verified orphans)
+    - [ ] DiscoveryManager._process_issue_from_batch + _handle_captcha_during_
+          batch_discovery — dead twin of the live batch_discovery.py method,
+          now fully redundant after the batch fix consolidated the logic
+    - [ ] api_client.py — dead module (no live src import; only scratch scripts).
+          Delete module + its tests; accept the scratch scripts break
+    - [ ] discovery_manager._extract_city — unused by _convert after enrichment
+          (or keep with TODO — see notes)
 - [ ] Remove legacy-specific CLI commands
 - [ ] Remove obsolete code paths
+    - [ ] get_newspapers: filter state via the `state` column instead of
+          place_of_publication LIKE (deferred until catalog repopulated live)
+    - [ ] _migrate_database: split per-table try blocks so one table's ALTER
+          failure can't abort later migrations
 - [ ] Update user documentation
-- [ ] Resolve deferred, non-blocking TODOs: download_newspaper
-      --estimate-only, search_text (get_count vs paginate), tui_monitor
-      (timeout NameError; cross-process rate-limit singleton),
-      merge_databases phantom columns (ocr_url / thumbnail_url)
----
+- [ ] Resolve deferred, non-blocking TODOs: download_newspaper --estimate-only,
+      search_text (get_count vs paginate), tui_monitor (timeout NameError;
+      cross-process rate-limit singleton), merge_databases phantom columns
+
+Decisions recorded as ADRs (docs/adr/): 0001 builder/processor split · 0002
+loc.gov sp/cursor pagination · 0003 lazy item-detail enrichment (Proposed) ·
+0004 defer pre-existing defects · 0005 keep legacy alive for its test suite ·
+0006 remove per-title issue discovery.
 
 # Design Principles
 

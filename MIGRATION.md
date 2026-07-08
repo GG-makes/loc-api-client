@@ -6,6 +6,55 @@ This document records the migration of this project from the retired Chronicling
 
 The goal of this migration is to restore discovery and ingestion workflows while improving maintainability, test coverage, and resilience against future external API changes.
 
+## Approach
+
+This migration keeps both API versions live and swaps between them by config,
+rather than cutting over in place. The shape of it:
+
+- **Per-API "twin" classes, selected by config.** Each version's divergence
+  lives behind a paired hierarchy — `QueryBuilder` (api_params.py),
+  `ResponseProcessor` (processor_new.py), `FacetQueryStrategy`
+  (facet_strategy.py) — chosen from `API_VERSION` via `config`. Application code
+  depends on the interfaces, not the version.
+- **Orchestration stays single and API-agnostic.** Discovery/CLI code delegates
+  to the config-selected twin; it does not branch on API version. Where a
+  divergence is storage-coupled (legacy state LCCN-sampling), it gets its own
+  small twin (`FacetQueryStrategy`) rather than an `if version` in the loop.
+- **Legacy is kept runnable and tested as a reference,** not deleted (ADR 0005).
+  A green suite is only meaningful because the known-good legacy path still runs.
+- **Decisions recorded as ADRs** (docs/adr/) — the sp/cursor pagination model,
+  lazy enrichment, why legacy stays, what was removed. These carried as much of
+  the migration as the class structure did, across many sessions.
+- **Live probing for ground truth.** Unknown API behaviour (pagination, filters,
+  endpoint shapes) was confirmed with throwaway live requests before being coded,
+  not assumed.
+
+### Lessons learned
+
+- **Match semantics before structure.** The twin layout pulls toward symmetry,
+  and the worst bugs were where two things *looked* parallel but weren't —
+  page-number resume vs cursor resume, bare vs composed processors, a "next"
+  flag that didn't advance loc.gov. Confirm the two sides are actually parallel
+  before copying a shape/type/default across.
+- **Clean interfaces make mocks lie.** The two costliest bugs (a batch path
+  calling a removed method; `paginate_search` silently walking one page) were
+  correct-looking units with broken *composition* — hidden because tests mocked
+  at the seam. Twins organise the code; only integration/live exercise catches
+  composition errors.
+- **Centralise test fixtures — and anchor them to reality.** Most shape bugs were
+  hand-rolled mocks re-deriving a response shape inline. Canonical loc.gov
+  response fixtures in `conftest.py` (plus one live-marked test asserting they
+  still match the API) would have killed a whole bug class and made false twins
+  visible side by side. This was the missing cheap win.
+- **Probes + twins + ADRs are one system.** Twins give structure, probes give
+  ground truth, ADRs give continuity. None sufficed alone; the places that got
+  burned were the places one of the three was skipped.
+- **Contributor posture: preserve, defer, document — don't decide for the
+  author.** Where a call belonged to the original author (when to retire legacy,
+  unfinished features like the threaded request queue), the migration flags and
+  defers it (ADR 0004) rather than making it. The goal was changes that stay
+  compatible with work-in-progress and assume as little as possible.
+
 ## Background
 
 In August 2025, the Library of Congress migrated Chronicling America search functionality to the broader `loc.gov` platform.

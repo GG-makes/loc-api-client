@@ -363,15 +363,15 @@ class DiscoveryManager:
         # Initialize discovery context for resume and progress management
         discovery_context = FacetDiscoveryContext(facet, batch_size, max_items)
         
-        # Resume capability logging
-        if discovery_context.resume_from_page > 1:
-            self.logger.info(f"Resuming facet {facet_id} discovery from page {discovery_context.resume_from_page}")
+        # Resume from a stored pagination cursor if this facet was interrupted mid-walk
+        if discovery_context.resume_cursor:
+            self.logger.info(f"Resuming facet {facet_id} discovery from a stored cursor")
         else:
-            # Update facet status to discovering
+            # Fresh discovery — mark as discovering
             self.logger.debug(f"Setting facet {facet_id} status to discovering")
             self.storage.update_facet_discovery(facet_id, status='discovering')
             self.logger.debug(f"Facet {facet_id} status updated")
-        
+
         # Initialize search parameter builder with batch size adjustment
         params_builder = FacetSearchParamsBuilder(self.logger)
         adjusted_batch_size = params_builder.adjust_batch_size_for_facet(facet, batch_size)
@@ -390,7 +390,9 @@ class DiscoveryManager:
 
             # Walk all result pages via the pagination cursor. Store each page as
             # it arrives — paginate_search owns pagination/termination.
-            for response in self.api_client.paginate_search(builder):
+            for response in self.api_client.paginate_search(builder, 
+                                                            start_url=discovery_context.resume_cursor):
+                next_url = response.get('pagination', {}).get('next')
                 pages = self.processor.parse_pages(response, deduplicate=True)
                 if not pages:
                     self.logger.debug(f"No results on page {discovery_context.current_page} for facet {facet_id}, ending discovery")
@@ -403,19 +405,18 @@ class DiscoveryManager:
                     self.logger.info(f"Limiting to {remaining_items} items to stay under max_items ({max_items}) for facet {facet_id}")
 
                 # Store discovered pages
-                self.logger.debug(f"About to store {len(pages)} pages for facet {facet_id}")
                 stored_count = self.storage.store_pages(pages)
-                self.logger.debug(f"Stored {stored_count} pages for facet {facet_id}")
                 discovery_context.update_progress(stored_count)
 
-                # Update facet progress with batch-level tracking
+                # Update facet progress AND checkpoint the resume cursor (next page to fetch)
                 self.storage.update_facet_discovery(
-                    facet_id, 
+                    facet_id,
                     items_discovered=discovery_context.total_discovered,
                     current_page=discovery_context.current_page,
-                    batch_size=discovery_context.batch_size
+                    batch_size=discovery_context.batch_size,
+                    resume_cursor=next_url,
                 )
-
+                
                 # Call progress callback if provided
                 if progress_callback:
                     progress_callback({
@@ -438,52 +439,18 @@ class DiscoveryManager:
                 if not discovery_context.should_continue_discovery():
                     break
             
-            # Handle completion based on whether discovery was interrupted
-            if discovery_context.discovery_interrupted:
-                # Discovery was interrupted - handle based on reason
-                if discovery_context.interruption_reason == 'captcha':
-                    # Mark for CAPTCHA recovery
-                    import time
-                    retry_time = time.time() + 3600  # 1 hour cooling-off
-                    retry_message = f"CAPTCHA interruption at page {discovery_context.current_page} - retry after: {time.ctime(retry_time)}"
-                    self.storage.update_facet_discovery(
-                        facet_id,
-                        status='captcha_retry',
-                        error_message=retry_message,
-                        items_discovered=discovery_context.total_discovered,
-                        current_page=discovery_context.current_page  # This will set resume_from_page automatically
-                    )
-                    self.logger.info(f"Marked facet {facet_id} for CAPTCHA retry (discovered {discovery_context.total_discovered} items, resume from page {discovery_context.current_page})")
-                elif discovery_context.interruption_reason == 'timeout' and discovery_context.total_discovered > 0:
-                    # Partial completion due to timeouts
-                    self.storage.update_facet_discovery(
-                        facet_id,
-                        actual_items=discovery_context.total_discovered,
-                        items_discovered=discovery_context.total_discovered,
-                        status='completed',
-                        error_message=f"Completed with timeouts at page {discovery_context.current_page}"
-                    )
-                    self.logger.info(f"Marked facet {facet_id} as completed with timeouts ({discovery_context.total_discovered} items)")
-                else:
-                    # Other interruption with partial results
-                    self.storage.update_facet_discovery(
-                        facet_id,
-                        status='needs_splitting',
-                        error_message=f"Interrupted by {discovery_context.interruption_reason} at page {discovery_context.current_page} - needs splitting",
-                        items_discovered=discovery_context.total_discovered,
-                        resume_from_page=discovery_context.current_page
-                    )
-                    self.logger.info(f"Marked facet {facet_id} for splitting due to {discovery_context.interruption_reason} (discovered {discovery_context.total_discovered} items)")
-            else:
-                # Normal completion
-                self.storage.update_facet_discovery(
-                    facet_id, 
-                    actual_items=discovery_context.total_discovered,
-                    items_discovered=discovery_context.total_discovered,
-                    status='completed'
-                )
-                self.logger.info(f"Completed discovery for facet {facet_id}: {discovery_context.total_discovered} items")
-            
+            # Walk finished normally. CAPTCHA/interruption is owned by the except
+            # blocks below (they set captcha_retry/captcha_blocked, and the resume
+            # cursor is already checkpointed per-response), so reaching here means
+            # discovery completed.
+            self.storage.update_facet_discovery(
+                facet_id,
+                actual_items=discovery_context.total_discovered,
+                items_discovered=discovery_context.total_discovered,
+                status='completed'
+            )
+            self.logger.info(f"Completed discovery for facet {facet_id}: {discovery_context.total_discovered} items")
+
             return discovery_context.total_discovered
             
         except CaptchaHandlingException as e:

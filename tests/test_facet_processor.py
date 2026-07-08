@@ -196,20 +196,20 @@ class TestFacetDiscoveryContext:
         facet = {
             'id': 1,
             'resume_from_page': 3,
+            'resume_cursor': 'https://www.loc.gov/collections/chronicling-america/?fo=json&c=150&sp=3',
             'items_discovered': 150
         }
-        
+
         context = FacetDiscoveryContext(facet, batch_size=50, max_items=1000)
-        
+
         assert context.facet_id == 1
         assert context.batch_size == 50
         assert context.max_items == 1000
+        assert context.resume_cursor == 'https://www.loc.gov/collections/chronicling-america/?fo=json&c=150&sp=3'
         assert context.resume_from_page == 3
         assert context.total_discovered == 150
         assert context.current_page == 3
-        assert not context.discovery_interrupted
-        assert context.interruption_reason is None
-    
+
     def test_initialization_new_facet(self):
         """Test context initialization for new facet."""
         facet = {
@@ -224,6 +224,7 @@ class TestFacetDiscoveryContext:
         assert context.resume_from_page == 1
         assert context.total_discovered == 0
         assert context.current_page == 1
+        assert context.resume_cursor is None
     
     def test_should_continue_discovery_unlimited(self):
         """Test discovery continuation with no max_items limit."""

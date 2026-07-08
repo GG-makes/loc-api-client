@@ -744,3 +744,18 @@ class TestNewsStorage:
         with closing(sqlite3.connect(temp_db)) as conn:
             cols = [r[1] for r in conn.execute("PRAGMA table_info(newspapers)").fetchall()]
         assert 'state' in cols and 'city' in cols
+
+    def test_facet_resume_cursor_round_trip(self, storage):
+        """resume_cursor persists and reads back for cursor-based facet resume."""
+        facet_id = storage.create_search_facet('date_range', '1906/1906')
+        cursor_url = 'https://www.loc.gov/collections/chronicling-america/?fo=json&c=150&sp=3'
+
+        storage.update_facet_discovery(facet_id, resume_cursor=cursor_url)
+
+        facet = storage.get_search_facet(facet_id)
+        assert facet['resume_cursor'] == cursor_url
+
+    def test_facet_resume_cursor_defaults_to_none(self, storage):
+        facet_id = storage.create_search_facet('date_range', '1906/1906')
+        facet = storage.get_search_facet(facet_id)
+        assert facet['resume_cursor'] is None

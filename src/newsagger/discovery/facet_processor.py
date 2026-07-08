@@ -160,14 +160,14 @@ class FacetDiscoveryContext:
         self.max_items = max_items
         
         # Resume capability
+        self.resume_cursor = facet.get('resume_cursor')
+        resuming = self.resume_cursor is not None
+        self.total_discovered = facet.get('items_discovered', 0) if resuming else 0
+
+        # Legacy page-number resume state (retained until piece 5 removes it)
         self.resume_from_page = facet.get('resume_from_page') or 1
-        self.total_discovered = facet.get('items_discovered', 0) if self.resume_from_page > 1 else 0
         self.current_page = self.resume_from_page
-        
-        # Discovery state
-        self.discovery_interrupted = False
-        self.interruption_reason = None
-        
+                        
     def should_continue_discovery(self) -> bool:
         """Check if discovery should continue based on max_items limit."""
         if self.max_items is None:

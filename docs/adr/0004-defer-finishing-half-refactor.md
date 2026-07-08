@@ -15,6 +15,8 @@ exist. Fixing these inline would bloat migration changesets, blur commit
 scope, and risk regressions in code the migration doesn't otherwise touch.
 Deleting them would discard the original author's intent before it's evaluated.
 
+Example: the dormant request_queue / is_processing scaffolding in RateLimitedRequestManager (rate_limited_client.py) is the original author's unfinished threaded request-dispatch feature; it is left intact and out of migration scope, since the live rate_limit_lock already provides the thread safety the download path relies on.
+
 ## Decision
 During the migration, pre-existing defects and half-implemented features found
 in passing are neither fixed nor removed. Each gets a detailed TODO comment at

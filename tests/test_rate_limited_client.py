@@ -215,6 +215,71 @@ class TestLocApiClient:
         client = LocApiClient()
         builder = LegacyQueryBuilder(ChroniclingAmericaSearchParams(date1='1906', date2='1906'))
         assert client.get_count(builder) == 50
+
+    def test_paginate_search_follows_pagination_next_cursor(self):
+        client = LocApiClient()
+        builder = Mock()
+        page1 = {'results': [1], 'pagination': {'next': 'CURSOR2'}}
+        page2 = {'results': [2], 'pagination': {'next': None}}
+        client.search = Mock(return_value=page1)
+        client._make_request = Mock(return_value=page2)
+
+        result = list(client.paginate_search(builder))
+
+        assert result == [page1, page2]
+        client.search.assert_called_once_with(builder)
+        client._make_request.assert_called_once_with('CURSOR2')
+
+    def test_paginate_search_stops_when_no_next(self):
+        client = LocApiClient()
+        builder = Mock()
+        client.search = Mock(return_value={'results': [1]})   # no pagination key
+        client._make_request = Mock()
+
+        result = list(client.paginate_search(builder))
+
+        assert result == [{'results': [1]}]
+        client._make_request.assert_not_called()
+
+    def test_paginate_search_does_not_increment_builder_page(self):
+        """Regression: cursor pagination must not touch builder.params.page (sp bug)."""
+        client = LocApiClient()
+        builder = Mock()
+        builder.params.page = 1
+        client.search = Mock(return_value={'pagination': {'next': 'C2'}})
+        client._make_request = Mock(return_value={'pagination': {'next': None}})
+
+        list(client.paginate_search(builder))
+
+        assert builder.params.page == 1
+
+    def test_paginate_search_start_url_resumes_from_cursor(self):
+        client = LocApiClient()
+        builder = Mock()
+        client.search = Mock()   # must NOT be called on resume
+        resumed = {'results': [3], 'pagination': {'next': None}}
+        client._make_request = Mock(return_value=resumed)
+
+        result = list(client.paginate_search(builder, start_url='RESUME_URL'))
+
+        assert result == [resumed]
+        client.search.assert_not_called()
+        client._make_request.assert_called_once_with('RESUME_URL')
+
+    def test_paginate_search_start_url_then_follows_next(self):
+        from unittest.mock import call
+        client = LocApiClient()
+        builder = Mock()
+        client.search = Mock()
+        page_a = {'pagination': {'next': 'CURSOR_B'}}
+        page_b = {'pagination': {'next': None}}
+        client._make_request = Mock(side_effect=[page_a, page_b])
+
+        result = list(client.paginate_search(builder, start_url='RESUME_A'))
+
+        assert result == [page_a, page_b]
+        client.search.assert_not_called()
+        assert client._make_request.call_args_list == [call('RESUME_A'), call('CURSOR_B')]
     
 class TestGetAllBatchesAndCount:
     """get_all_batches/get_count delegate to the builder; build nothing themselves."""

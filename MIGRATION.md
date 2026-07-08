@@ -540,6 +540,11 @@ still works; only resume is broken. Fix = persist the cursor, not a page number:
 - [ ] Resolve deferred, non-blocking TODOs: download_newspaper --estimate-only,
       search_text (get_count vs paginate), tui_monitor (timeout NameError;
       cross-process rate-limit singleton), merge_databases phantom columns
+- [ ] Retire page-number tracking (resume_from_page, current_page) from facet
+      discovery once cursor resume is proven in the field. Blocked on reworking
+      validate_and_fix_facet_status (facet_processor.py), which uses them to
+      detect incorrectly-completed facets — don't remove the columns until that
+      detection is ported to the cursor model.
 
 Decisions recorded as ADRs (docs/adr/): 0001 builder/processor split · 0002
 loc.gov sp/cursor pagination · 0003 lazy item-detail enrichment (Proposed) ·
@@ -556,6 +561,26 @@ The migration follows these principles:
 4. Prefer incremental, reviewable changes.
 5. Add tests alongside migration work.
 6. Document assumptions and decisions.
+
+# Known Limitations
+
+### Legacy search pagination is single-page (accepted, ADR 0002/0005)
+
+paginate_search follows the loc.gov pagination.next cursor. Legacy responses
+carry no such cursor — legacy paginates via page/totalPages — so a legacy query
+yields only its first page. This is accepted, not a defect: the legacy endpoint
+is retired and cannot run, and legacy is kept solely as a tested reference. The
+original working legacy pagination lived in
+api_client.LocApiClient.search_with_faceted_dates, removed with that dead module
+and recoverable from git history if ever needed.
+
+Reintegration seam, if legacy runtime pagination is ever required: add a builder
+method fetch_all_search_pages(fetch) — LegacyQueryBuilder loops page/totalPages,
+LocGovQueryBuilder follows the cursor — and have paginate_search delegate to it,
+mirroring get_all_batches → fetch_all_batches. Caveat: this collides with the
+facet-discovery resume model (legacy resume is page-number, loc.gov resume is a
+cursor URL), so restoring legacy would mean two resume paths for a feature only
+one of which can execute.
 
 ---
 

@@ -676,23 +676,37 @@ class LocApiClient:
 
         return self._make_request('search/pages/results/', search_params)
         
-    def paginate_search(self, builder) -> Generator[Dict, None, None]:
+    def paginate_search(self, builder, start_url: str = None) -> Generator[Dict, None, None]:
         """
-        Walks all pages of a query, yielding each response. Replaces the
-        missing search_with_faceted_dates (only ever existed on the deprecated
-        api_client.LocApiClient).
+        Walk all result pages of a query, yielding each response.
 
-        NOTE: I was unable to confirm whether the legacy api had
-        the 'next' functionality. In the unlikely circumstance the module is
-        ever run against the legacy api again, this will need testing.  
+        Pagination follows the loc.gov pagination.next cursor (ADR 0002): the
+        first request is built from the builder — or fetched from start_url when
+        resuming — and each subsequent page is the previous response's
+        pagination.next URL. This does NOT mutate builder.params.page; on loc.gov
+        'sp' is a physical-page selector, not a result-page number, and build()
+        emits no page param at all.
+
+        Legacy responses carry no pagination.next, so a legacy query yields a
+        single page — an accepted limitation (legacy is retired; ADR 0002/0005).
+
+        Args:
+            start_url: if provided, resume the cursor walk from this URL (a stored
+                pagination.next) rather than building the first request from the
+                builder. Used to resume facet discovery after an interruption.
         """
-        while True:
+        if start_url:
+            response = self._make_request(start_url)
+        else:
             response = self.search(builder)
-            yield response
+        yield response
+
+        while True:
             next_url = response.get("pagination", {}).get("next")
             if not next_url:
                 break
-            builder.params.page += 1
+            response = self._make_request(next_url)
+            yield response
 
     def get_all_batches(self, builder) -> Generator[Dict, None, None]:
         yield from builder.fetch_all_batches(self._make_request)

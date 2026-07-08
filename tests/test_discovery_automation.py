@@ -196,10 +196,10 @@ class TestDiscoveryAutomation:
             for i in range(20)
         ]
         
-        self.mock_api_client.paginate_search.return_value = {
+        self.mock_api_client.paginate_search.return_value = [{
             'items': mock_pages,
             'totalItems': 20
-        }
+        }]
         self.mock_processor.parse_pages.return_value = [
             PageInfo(
                 item_id=f'item{i}',
@@ -623,3 +623,38 @@ class TestDiscoveryAutomation:
         assert self.mock_api_client.get_count.called
         builder_passed = self.mock_api_client.get_count.call_args[0][0]
         assert isinstance(builder_passed, self.discovery.query_builder_class)
+
+    def test_discover_facet_content_resumes_from_stored_cursor(self):
+        """A facet with a stored resume_cursor drives paginate_search's start_url."""
+        facet_id = self.storage.create_search_facet('date_range', '1906/1906', '', 1000)
+        self.storage.update_facet_discovery(
+            facet_id, resume_cursor='https://www.loc.gov/collections/chronicling-america/?fo=json&c=150&sp=3')
+
+        self.mock_api_client.paginate_search.return_value = [
+            {'results': [], 'pagination': {'next': None}}
+        ]
+        self.mock_processor.parse_pages.return_value = []
+
+        self.discovery.discover_facet_content(facet_id)
+
+        self.mock_api_client.paginate_search.assert_called_once()
+        assert self.mock_api_client.paginate_search.call_args[1]['start_url'] == \
+            'https://www.loc.gov/collections/chronicling-america/?fo=json&c=150&sp=3'
+
+    def test_discover_facet_content_checkpoints_resume_cursor(self):
+        """Each page's pagination.next is persisted as the resume cursor."""
+        facet_id = self.storage.create_search_facet('date_range', '1906/1906', '', 1000)
+
+        self.mock_api_client.paginate_search.return_value = [
+            {'results': ['x'], 'pagination': {'next': 'https://www.loc.gov/...&sp=2'}}
+        ]
+        self.mock_processor.parse_pages.return_value = [
+            PageInfo(item_id='item1', lccn='sn1', title='Test', date='1906-04-18',
+                     edition=1, sequence=1, page_url='https://example.com/item1',
+                     pdf_url=None, jp2_url=None, ocr_text=None, word_count=None)
+        ]
+
+        self.discovery.discover_facet_content(facet_id)
+
+        facet = self.storage.get_search_facet(facet_id)
+        assert facet['resume_cursor'] == 'https://www.loc.gov/...&sp=2'

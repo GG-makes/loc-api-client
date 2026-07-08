@@ -65,6 +65,10 @@ class NewsStorage(DatabaseOperationMixin):
                 cursor.execute("ALTER TABLE search_facets ADD COLUMN resume_from_page INTEGER DEFAULT 1")
                 self.logger.info("Added resume_from_page column for batch-level resume")
             
+            if 'resume_cursor' not in existing_columns:
+                cursor.execute("ALTER TABLE search_facets ADD COLUMN resume_cursor TEXT")
+                self.logger.info("Added resume_cursor column for cursor-based resume")
+
             # Add state/city columns to newspapers (loc.gov structured location)
             cursor.execute("PRAGMA table_info(newspapers)")
             newspaper_columns = [column[1] for column in cursor.fetchall()]
@@ -174,6 +178,7 @@ class NewsStorage(DatabaseOperationMixin):
                     download_completed TIMESTAMP,
                     status TEXT DEFAULT 'pending', -- 'pending', 'discovering', 'downloading', 'completed', 'error'
                     error_message TEXT,
+                    resume_cursor TEXT,           -- loc.gov pagination.next URL to resume a walk
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     UNIQUE(facet_type, facet_value, facet_query)
@@ -635,7 +640,7 @@ class NewsStorage(DatabaseOperationMixin):
     def update_facet_discovery(self, facet_id: int, actual_items: int = None, 
                              items_discovered: int = None, status: str = None, 
                              error_message: str = None, current_page: int = None, 
-                             batch_size: int = None):
+                             batch_size: int = None, resume_cursor: str = None):
         """Update facet discovery progress with batch-level tracking."""
         with self._connect() as conn:
             updates = ["updated_at = CURRENT_TIMESTAMP"]
@@ -675,6 +680,10 @@ class NewsStorage(DatabaseOperationMixin):
                 params.append(batch_size)
                 updates.append("last_successful_batch = CURRENT_TIMESTAMP")
             
+            if resume_cursor is not None:
+                updates.append("resume_cursor = ?")
+                params.append(resume_cursor)
+
             params.append(facet_id)
             
             conn.execute(f"""
@@ -1123,7 +1132,6 @@ class NewsStorage(DatabaseOperationMixin):
             self._migrate_database(conn)
             
             cursor = conn.cursor()
-            
             # Check what columns actually exist
             cursor.execute("PRAGMA table_info(search_facets)")
             existing_columns = [column[1] for column in cursor.fetchall()]
@@ -1133,7 +1141,8 @@ class NewsStorage(DatabaseOperationMixin):
                            "actual_items", "items_discovered", "items_downloaded", 
                            "status", "error_message", "created_at", "updated_at"]
             
-            optional_columns = ["current_page", "last_batch_size", "resume_from_page"]
+            optional_columns = ["current_page", "last_batch_size", "resume_from_page", 
+                                "resume_cursor"]           
             available_optional = [col for col in optional_columns if col in existing_columns]
             
             all_columns = base_columns + available_optional
@@ -1161,6 +1170,7 @@ class NewsStorage(DatabaseOperationMixin):
             result.setdefault('current_page', 1)
             result.setdefault('last_batch_size', 100)
             result.setdefault('resume_from_page', 1)
+            result.setdefault('resume_cursor', None)
             
             return result
     

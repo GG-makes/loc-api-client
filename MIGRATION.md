@@ -467,64 +467,75 @@ The goal is to maintain compatibility across supported development environments 
 - [x] Separate API-specific response handling concerns from application
       workflows (processor_new ResponseProcessor hierarchy)
 - [ ] Remove assumptions tied only to the retired API
-    - [x] Newspaper list: build_newspaper_list + fetch_all_newspapers on
-          both builders; client get_all_newspapers yields NewspaperInfo
-    - [x] Confirmed titles/?fo=json&c=150 live; baked c=150 into build_newspaper_list
-    - [x] NewspaperInfo carries structured state/city, persisted to newspapers +
-          periodicals tables
-    - [x] Batch discovery bulk path FIXED: BatchDiscoveryProcessor.
-          process_issue_from_batch now uses processor.parse_issue (was calling
-          the removed process_page_from_issue + reading legacy issue['pages'] →
-          silent zero on loc.gov). Added LegacyResponseProcessor.parse_issue to
-          complete the interface.
-    - [x] Per-title issue discovery REMOVED, not migrated (ADR 0006):
-          get_newspaper_issues + discover_periodical_issues. loc.gov has no
-          per-title issues endpoint; issue enumeration is batch-based. Its
-          periodical_issues storage cluster is intentionally retained (inert,
-          reusable if the feature is rebuilt on the batch path).
-    - [ ] search_pages: retire the legacy shim (rate_limited_client.py:642).
-          Live under discover_facet_content → process_captcha_recovery + CLI
-          auto_discover_facets / setup_download_workflow / retry_failed_facets /
-          test_discovery. Route through search(builder) / paginate_search(builder).
-- [ ] Separate API-specific query concerns from application workflows
-    - [x] discovery_manager._convert_newspaper_to_periodical and list_newspapers
-          consume NewspaperInfo, not raw legacy dicts
-    - [ ] discover_facet_content still calls the legacy search_pages shim
-          (discovery_manager.py:454) — folds into the search_pages item above
+    - [x] Newspaper list: build_newspaper_list + fetch_all_newspapers; client
+          get_all_newspapers yields NewspaperInfo
+    - [x] titles/?fo=json&c=150 (confirmed live); baked into build_newspaper_list
+    - [x] NewspaperInfo structured state/city, persisted to newspapers + periodicals
+    - [x] Batch discovery bulk path fixed (process_issue_from_batch → parse_issue;
+          added LegacyResponseProcessor.parse_issue)
+    - [x] Per-title issue discovery removed, not migrated (ADR 0006)
+    - [ ] Retire search_pages / migrate discover_facet_content (IN PROGRESS)
+        - [x] FacetQueryStrategy twin pair (facet_strategy.py), config-selected:
+              legacy LCCN-sampling preserved (ADR 0004/0005); loc.gov native
+              location_state filter
+        - [x] discover_facet_content builds via facet_strategy + walks
+              paginate_search (no longer calls search_pages); per-response store
+              fix (was storing only the last page)
+        - [ ] CAPTCHA + cursor-based resume rework — BLOCKER, see below
+        - [ ] delete search_pages; remove FacetSearchParamsBuilder
+              (build_search_params now dead; adjust_batch_size_for_facet needs a home)
+- [x] Separate API-specific query concerns from application workflows
+    - [x] _convert_newspaper_to_periodical and list_newspapers consume NewspaperInfo
+    - [x] discover_facet_content off the legacy search_pages shim (via FacetQueryStrategy)
 
 ## Phase 3: Validation
 
 - [ ] Add migration regression tests
-    - [x] Builder unit tests for build_newspaper_list / fetch_all_newspapers
-    - [x] parse_newspapers state/city assertions; storage migration + round-trip
+    - [x] Builder unit tests (build_newspaper_list / fetch_all_newspapers)
+    - [x] parse_newspapers state/city; storage migration + round-trip
     - [x] Batch discovery test reaching parse_issue on a loc.gov issue shape
-          (test_batch_discovery.py) — the coverage gap that let the broken
-          call slip past a green suite
-    - [ ] Rewrite test_get_page_metadata (currently a skipped Phase 3
-          placeholder) once a page item-detail fetch exists
-- [ ] Validate discovery workflows — blocked on search_pages migration
+    - [ ] FacetQueryStrategy unit tests (legacy state LCCN-sampling incl. the
+          no-periodicals None case; loc.gov native; date_range/combined/query)
+    - [ ] Rewrite test_get_page_metadata (skipped Phase 3 placeholder)
+- [ ] Validate discovery workflows — BLOCKED on CAPTCHA/cursor-resume
 - [ ] Validate ingestion workflows
     - [ ] BLOCKED on item-detail enrichment (not yet built):
         - [ ] fulltext_url column + PageInfo field
         - [ ] enrich_from_detail on ResponseProcessor
         - [ ] wire DownloadProcessor._download_page lazy enrichment
 
+### Facet discovery: CAPTCHA + cursor-based resume (next session)
+
+Cursor pagination (pagination.next) has no page number to resume from, so
+resume currently restarts a facet from page 1 — unusable on the CAPTCHA-prone
+loc.gov path (re-fetching prior pages re-triggers CAPTCHAs). Detection/blocking
+still works; only resume is broken. Fix = persist the cursor, not a page number:
+
+- [ ] paginate_search(builder, start_url=None) — resume entry point
+- [ ] track pagination.next per response; persist it on interruption
+      (per-response checkpoint vs only-on-CAPTCHA — decision pending)
+- [ ] storage: add resume_cursor TEXT to search_facets (+ migration); wire
+      update_facet_discovery / get_search_facet
+- [ ] FacetDiscoveryContext resumes from resume_cursor
+- [ ] retire dead page-number scaffolding: resume_from_page, current_page-as-driver,
+      the now-unreachable discovery_interrupted completion branches
+- [ ] update CAPTCHA facet tests to the cursor-resume model
+      (safety net: dedup + INSERT OR REPLACE make resume idempotent, so this is
+      an efficiency/rate-limit fix, not a correctness one)
+
 ## Phase 4: Cleanup
 
-- [ ] Remove dead / duplicated code (graph-verified orphans)
-    - [ ] DiscoveryManager._process_issue_from_batch + _handle_captcha_during_
-          batch_discovery — dead twin of the live batch_discovery.py method,
-          now fully redundant after the batch fix consolidated the logic
-    - [ ] api_client.py — dead module (no live src import; only scratch scripts).
-          Delete module + its tests; accept the scratch scripts break
-    - [ ] discovery_manager._extract_city — unused by _convert after enrichment
-          (or keep with TODO — see notes)
+- [ ] Remove dead / duplicated code
+    - [x] DiscoveryManager batch twin (_process_issue_from_batch,
+          _handle_captcha_during_batch_discovery) — removed
+    - [x] api_client.py dead module — removed
+    - [ ] discovery_manager._extract_city — unused (kept for now, or remove)
+    - [ ] search_pages + FacetSearchParamsBuilder (after the facet work validates)
 - [ ] Remove legacy-specific CLI commands
 - [ ] Remove obsolete code paths
-    - [ ] get_newspapers: filter state via the `state` column instead of
-          place_of_publication LIKE (deferred until catalog repopulated live)
-    - [ ] _migrate_database: split per-table try blocks so one table's ALTER
-          failure can't abort later migrations
+    - [ ] get_newspapers: filter state via the `state` column, not place LIKE
+    - [ ] _migrate_database: split per-table try blocks so one ALTER failure
+          can't abort later migrations
 - [ ] Update user documentation
 - [ ] Resolve deferred, non-blocking TODOs: download_newspaper --estimate-only,
       search_text (get_count vs paginate), tui_monitor (timeout NameError;

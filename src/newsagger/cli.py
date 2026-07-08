@@ -109,7 +109,8 @@ def discover(max_papers, states):
     processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
-                                 **config.get_querybuilder_config())
+                                 **config.get_querybuilder_config(),
+                                 **config.get_facet_strategy_config())
     
     click.echo("🔍 Starting periodical discovery...")
     
@@ -157,8 +158,9 @@ def create_facets(start_year, end_year, facet_size, estimate_items, rate_limit_d
     processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
-                                 **config.get_querybuilder_config())
-    
+                                 **config.get_querybuilder_config(),
+                                 **config.get_facet_strategy_config())
+        
     total_facets = len(range(start_year, end_year + 1, facet_size))
     
     if estimate_items:
@@ -533,8 +535,9 @@ def populate_queue(priority_states, priority_dates):
     processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
-                                **config.get_querybuilder_config())
-    
+                                 **config.get_querybuilder_config(),
+                                 **config.get_facet_strategy_config())
+        
     click.echo("⬇️ Populating download queue...")
     
     try:
@@ -579,8 +582,9 @@ def auto_discover_facets(auto_enqueue, batch_size, max_items, skip_errors, timeo
     processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
-                                **config.get_querybuilder_config())
-
+                                 **config.get_querybuilder_config(),
+                                 **config.get_facet_strategy_config())
+    
     click.echo("🔍 Starting systematic facet discovery...")
     
     # Check global CAPTCHA status first
@@ -946,8 +950,9 @@ def discover_via_batches(max_batches, auto_enqueue, rate_limit_delay):
     processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
-                                **config.get_querybuilder_config())
-
+                                 **config.get_querybuilder_config(),
+                                 **config.get_facet_strategy_config())
+    
     click.echo("🔍 Starting batch-based content discovery...")
     click.echo(f"   📦 Max batches: {max_batches or 'unlimited'}")
     click.echo(f"   ⬇️ Auto-enqueue: {'Yes' if auto_enqueue else 'No'}")
@@ -1000,8 +1005,9 @@ def test_discovery(year, state, max_items):
     client = LocApiClient(**config.get_api_config())
     processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
-    discovery = DiscoveryManager(client, processor, storage, **config.get_querybuilder_config())
-    
+    discovery = DiscoveryManager(client, processor, storage, 
+                                 **config.get_querybuilder_config(),
+                                 **config.get_facet_strategy_config())    
     if year:
         click.echo(f"🔍 Testing discovery for year {year} (max {max_items} items)...")
         
@@ -1059,8 +1065,10 @@ def auto_enqueue(priority_facets, max_size_gb, dry_run):
     """Automatically enqueue all discovered content for download."""
     config = Config()
     storage = NewsStorage(**config.get_storage_config())
-    discovery = DiscoveryManager(None, None, storage, **config.get_querybuilder_config())
-    
+    discovery = DiscoveryManager(None, None, storage, 
+                                 **config.get_querybuilder_config(),
+                                 **config.get_facet_strategy_config()) 
+       
     action = "Would enqueue" if dry_run else "Enqueuing"
     click.echo(f"⬇️ {action} discovered content...")
     
@@ -1537,8 +1545,9 @@ def setup_download_workflow(start_year, end_year, states, auto_discover, auto_en
     processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
-                                **config.get_querybuilder_config())
-
+                                 **config.get_querybuilder_config(),
+                                 **config.get_facet_strategy_config())
+    
     click.echo("🚀 Setting up automated download workflow...")
     click.echo(f"   📅 Years: {start_year} - {end_year}")
     if states:
@@ -2094,8 +2103,8 @@ def retry_failed_facets(batch_size, max_items):
     processor = config.processor_class()
     storage = NewsStorage(**config.get_storage_config())
     discovery = DiscoveryManager(client, processor, storage, 
-                                **config.get_querybuilder_config())
-    
+                                 **config.get_querybuilder_config(),
+                                 **config.get_facet_strategy_config())    
     # Find failed facets
     failed_facets = storage.get_search_facets(status='error')
     

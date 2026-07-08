@@ -30,6 +30,7 @@ class TestCLI:
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
 
         mock_processor_instance = Mock()
         mock_processor_instance.parse_newspapers.return_value = []
@@ -48,6 +49,7 @@ class TestCLI:
         # Mock dependencies
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config_instance.processor_class = Mock()
@@ -80,6 +82,7 @@ class TestCLI:
         # Mock config
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -118,6 +121,7 @@ class TestCLI:
         # Mock config
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -152,6 +156,7 @@ class TestCLI:
         # Mock config
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -185,6 +190,7 @@ class TestCLI:
         # Mock dependencies
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
@@ -217,6 +223,7 @@ class TestCLI:
         # Mock dependencies
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
@@ -266,6 +273,7 @@ class TestCLI:
         # Mock dependencies
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
@@ -305,6 +313,7 @@ class TestCLI:
         # Mock config
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -343,6 +352,7 @@ class TestCLI:
         # Mock config
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -378,6 +388,7 @@ class TestCLI:
         # Mock dependencies
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
@@ -416,6 +427,7 @@ class TestCLI:
         # Mock dependencies
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
@@ -451,6 +463,7 @@ class TestCLI:
         with patch('newsagger.cli.Config') as mock_config:
             mock_config_instance = Mock()
             mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+            mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
             mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
             mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
             mock_config_instance.processor_class = Mock()   # ← add this
@@ -496,6 +509,7 @@ class TestCLI:
         with patch('newsagger.cli.Config') as mock_config:
             mock_config_instance = Mock()
             mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+            mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
             mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
             mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
             mock_config.return_value = mock_config_instance
@@ -515,6 +529,7 @@ class TestCLI:
         with patch('newsagger.cli.Config') as mock_config:
             mock_config_instance = Mock()
             mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+            mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
             mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
             mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
             mock_config_instance.processor_class = Mock()
@@ -558,6 +573,7 @@ class TestCLI:
         with patch('newsagger.cli.Config') as mock_config:
             mock_config_instance = Mock()
             mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+            mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
             mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
             mock_config.return_value = mock_config_instance
             
@@ -587,6 +603,7 @@ class TestCLI:
         """Test status command."""
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config.return_value = mock_config_instance
         
@@ -638,6 +655,7 @@ class TestCLI:
         """Test resume-downloads command."""
         mock_config_instance = Mock()
         mock_config_instance.get_querybuilder_config.return_value = {'query_builder_class': LegacyQueryBuilder}
+        mock_config_instance.get_facet_strategy_config.return_value = {'facet_strategy_class': Mock()}
         mock_config_instance.get_storage_config.return_value = {'db_path': ':memory:'}
         mock_config_instance.get_api_config.return_value = {'base_url': 'test'}
         mock_config.return_value = mock_config_instance

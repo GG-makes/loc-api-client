@@ -25,11 +25,12 @@ class DiscoveryManager:
     """Manages discovery of available content and tracks download progress."""
     
     def __init__(self, api_client: LocApiClient, processor: ResponseProcessor, 
-                 storage: NewsStorage, query_builder_class):
+                 storage: NewsStorage, query_builder_class, facet_strategy_class):
         self.api_client = api_client
         self.processor = processor
         self.storage = storage
         self.query_builder_class = query_builder_class
+        self.facet_strategy = facet_strategy_class(storage, query_builder_class)
         self.logger = logging.getLogger(__name__)
         
         # Initialize batch discovery processor
@@ -377,95 +378,36 @@ class DiscoveryManager:
         discovery_context.batch_size = adjusted_batch_size
         
         try:
-            while discovery_context.should_continue_discovery():
-                # Build search parameters using the extracted builder
-                search_params = params_builder.build_search_params(
-                    facet, discovery_context.current_page, discovery_context.batch_size
-                )
-                
-                # Handle special case for state facets with no periodicals
-                if facet['facet_type'] == 'state':
-                    state_periodicals = self.storage.get_periodicals(state=facet['facet_value'])
-                    if not state_periodicals:
-                        self.logger.warning(f"No periodicals found for state {facet['facet_value']}")
-                        # Mark this facet as completed with 0 items and continue to next facet
-                        self.storage.update_facet_discovery(
-                            facet_id, 
-                            actual_items=0,
-                            items_discovered=0,
-                            status='completed'
-                        )
-                        self.logger.info(f"Completed discovery for facet {facet_id}: 0 items (no periodicals for state)")
-                        return 0
-                    
-                    # Use the first few LCCNs from the state for more focused search
-                    sample_lccns = [p['lccn'] for p in state_periodicals[:5]]  # Limit to 5 newspapers
-                    if sample_lccns:
-                        search_params['andtext'] = f"lccn:({' OR '.join(sample_lccns)})"
-                    else:
-                        search_params['andtext'] = facet['facet_value']
-                elif facet.get('query'):
-                    search_params['andtext'] = facet['query']
-                
-                # Perform search with timeout handling
-                try:
-                    self.logger.debug(f"Searching facet {facet_id} page {discovery_context.current_page} with params: {search_params}")
-                    self.logger.debug(f"About to call search_pages for facet {facet_id}")
-                    #TODO: Needs replacement
-                    response = self.api_client.search_pages(**search_params)
-                    self.logger.debug(f"Got API response for facet {facet_id}, processing...")
-                    pages = self.processor.parse_pages(response, deduplicate=True) 
-                    self.logger.debug(f"Processed response for facet {facet_id}, got {len(pages)} pages")
-                    
-                    if not pages:
-                        self.logger.debug(f"No results on page {discovery_context.current_page} for facet {facet_id}, ending discovery")
-                        break
-                        
-                    self.logger.debug(f"Found {len(pages)} pages on page {discovery_context.current_page} for facet {facet_id}")
-                    
-                except CaptchaHandlingException:
-                    # Let CAPTCHA exceptions propagate to the global handler
-                    # Don't catch these - they need to bubble up to stop ALL discovery
-                    raise
-                    
-                except Exception as e:
-                    self.logger.warning(f"Search failed for facet {facet_id} page {discovery_context.current_page}: {e}")
-                    
-                    # Check if this is a legacy CAPTCHA-related error
-                    if 'captcha' in str(e).lower():
-                        discovery_context.discovery_interrupted = True
-                        discovery_context.interruption_reason = 'captcha'
-                        self.logger.warning(f"Legacy CAPTCHA interruption on facet {facet_id} page {discovery_context.current_page} - marking for recovery")
-                        break
-                    # For certain errors, we should stop rather than continue
-                    elif 'timeout' in str(e).lower() or 'connection' in str(e).lower():
-                        discovery_context.discovery_interrupted = True
-                        discovery_context.interruption_reason = 'timeout'
-                        self.logger.warning(f"Network issue on facet {facet_id}, stopping discovery")
-                        break
-                    elif discovery_context.current_page == 1:
-                        # If first page fails, this facet might be problematic
-                        self.logger.error(f"First page failed for facet {facet_id}, marking as error")
-                        raise
-                    else:
-                        # If later pages fail, we can still save what we found
-                        discovery_context.discovery_interrupted = True
-                        discovery_context.interruption_reason = 'other_error'
-                        self.logger.warning(f"Page {discovery_context.current_page} failed for facet {facet_id}, stopping at page {discovery_context.current_page-1}")
-                        break
-                
+            # Build the query for this facet. Strategy owns the API-specific
+            # translation (legacy LCCN-sampling vs loc.gov native filters).
+            builder = self.facet_strategy.build_query(facet, rows=discovery_context.batch_size)
+            if builder is None:
+                # Legacy: state facet with no discovered periodicals → nothing to search
+                self.storage.update_facet_discovery(
+                    facet_id, actual_items=0, items_discovered=0, status='completed')
+                self.logger.info(f"Completed discovery for facet {facet_id}: 0 items (no periodicals for state)")
+                return 0
+
+            # Walk all result pages via the pagination cursor. Store each page as
+            # it arrives — paginate_search owns pagination/termination.
+            for response in self.api_client.paginate_search(builder):
+                pages = self.processor.parse_pages(response, deduplicate=True)
+                if not pages:
+                    self.logger.debug(f"No results on page {discovery_context.current_page} for facet {facet_id}, ending discovery")
+                    break
+
                 # Apply max_items limit before storing
                 remaining_items = discovery_context.get_remaining_items()
                 if remaining_items is not None and len(pages) > remaining_items:
                     pages = pages[:remaining_items]
                     self.logger.info(f"Limiting to {remaining_items} items to stay under max_items ({max_items}) for facet {facet_id}")
-                
+
                 # Store discovered pages
                 self.logger.debug(f"About to store {len(pages)} pages for facet {facet_id}")
                 stored_count = self.storage.store_pages(pages)
                 self.logger.debug(f"Stored {stored_count} pages for facet {facet_id}")
                 discovery_context.update_progress(stored_count)
-                
+
                 # Update facet progress with batch-level tracking
                 self.storage.update_facet_discovery(
                     facet_id, 
@@ -473,7 +415,7 @@ class DiscoveryManager:
                     current_page=discovery_context.current_page,
                     batch_size=discovery_context.batch_size
                 )
-                
+
                 # Call progress callback if provided
                 if progress_callback:
                     progress_callback({
@@ -483,19 +425,18 @@ class DiscoveryManager:
                         'total_discovered': discovery_context.total_discovered,
                         'facet_value': facet['facet_value']
                     })
-                
+
                 # Provide periodic status updates for long-running facets
                 if discovery_context.current_page % 10 == 0 and discovery_context.current_page > 0:  # Every 10 pages
                     self.logger.info(f"Facet {facet_id} ({facet['facet_value']}): page {discovery_context.current_page}, {discovery_context.total_discovered:,} items discovered so far")
-                
+
                 self.logger.debug(f"Discovered {stored_count} items on page {discovery_context.current_page} for facet {facet_id}")
-                
-                # Check if we've reached the limit or last page
-                if len(pages) < discovery_context.batch_size:
-                    # Last page
-                    break
-                
+
                 discovery_context.current_page += 1
+
+                # Stop once we've reached max_items (paginate_search handles last-page termination)
+                if not discovery_context.should_continue_discovery():
+                    break
             
             # Handle completion based on whether discovery was interrupted
             if discovery_context.discovery_interrupted:

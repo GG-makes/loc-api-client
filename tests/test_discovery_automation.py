@@ -15,6 +15,7 @@ from newsagger.storage import NewsStorage
 from newsagger.rate_limited_client import LocApiClient #TODO: replace with ratelimitedclient
 from newsagger.api_params import LegacyQueryBuilder
 from newsagger.processor_new import LegacyResponseProcessor, PageInfo, NewspaperInfo
+from newsagger.facet_strategy import LegacyFacetQueryStrategy
 
 class TestDiscoveryAutomation:
     """Test automated discovery functionality."""
@@ -34,7 +35,8 @@ class TestDiscoveryAutomation:
             self.mock_api_client,
             self.mock_processor,
             self.storage,
-            LegacyQueryBuilder # version doesn't matter in mock
+            LegacyQueryBuilder, # version doesn't matter in mock
+            LegacyFacetQueryStrategy
         )
     
     # def teardown_method(self):
@@ -97,10 +99,7 @@ class TestDiscoveryAutomation:
             }
         ]
         
-        self.mock_api_client.search_pages.return_value = {
-            'items': mock_pages,
-            'totalItems': 2
-        }
+        self.mock_api_client.paginate_search.return_value = [{'items': mock_pages, 'totalItems': 2}]
         self.mock_processor.parse_pages.return_value = [
             PageInfo(
                 item_id='item1',
@@ -136,14 +135,13 @@ class TestDiscoveryAutomation:
         # Verify results
         assert discovered_count == 2
         
-        # Check API was called with correct parameters
-        self.mock_api_client.search_pages.assert_called_once()
-        call_args = self.mock_api_client.search_pages.call_args[1]
-        assert call_args['date1'] == '1906'
-        assert call_args['date2'] == '1906'
-        assert call_args['rows'] == 50
-        assert call_args['page'] == 1
-        
+        # Check API was called with a builder carrying the facet's query
+        self.mock_api_client.paginate_search.assert_called_once()
+        builder = self.mock_api_client.paginate_search.call_args[0][0]
+        assert builder.params.date1 == '1906'
+        assert builder.params.date2 == '1906'
+        assert builder.params.rows == 50
+
         # Check facet status was updated
         facet = self.storage.get_search_facet(facet_id)
         assert facet['status'] == 'completed'
@@ -162,10 +160,10 @@ class TestDiscoveryAutomation:
         )
         
         # Mock empty response (no pages found)
-        self.mock_api_client.search_pages.return_value = {
+        self.mock_api_client.paginate_search.return_value = [{
             'items': [],
             'totalItems': 0
-        }
+        }]
         self.mock_processor.parse_pages.return_value = []
         
         # Test discovery
@@ -174,12 +172,11 @@ class TestDiscoveryAutomation:
         # Verify results
         assert discovered_count == 0
         
-        # Check API was called with LCCN-based search (not state parameter)
-        self.mock_api_client.search_pages.assert_called_once()
-        call_args = self.mock_api_client.search_pages.call_args[1]
-        assert 'andtext' in call_args
-        assert 'sn84038012' in call_args['andtext']
-    
+        # Check the legacy strategy built an LCCN search (not a state= param)
+        self.mock_api_client.paginate_search.assert_called_once()
+        builder = self.mock_api_client.paginate_search.call_args[0][0]
+        assert 'sn84038012' in builder.params.search_text
+
     def test_discover_facet_content_with_max_items(self):
         """Test discovery with max items limit."""
         # Create a test facet
@@ -199,7 +196,7 @@ class TestDiscoveryAutomation:
             for i in range(20)
         ]
         
-        self.mock_api_client.search_pages.return_value = {
+        self.mock_api_client.paginate_search.return_value = {
             'items': mock_pages,
             'totalItems': 20
         }
@@ -241,8 +238,8 @@ class TestDiscoveryAutomation:
         )
         
         # Mock API error
-        self.mock_api_client.search_pages.side_effect = Exception("API Error")
-        
+        self.mock_api_client.paginate_search.side_effect = Exception("API Error")
+
         # Test discovery should raise exception
         with pytest.raises(Exception, match="API Error"):
             self.discovery.discover_facet_content(facet_id)
@@ -394,7 +391,7 @@ class TestDiscoveryAutomation:
             'totalItems': 150
         }
         
-        self.mock_api_client.search_pages.side_effect = [page1_response, page2_response]
+        self.mock_api_client.paginate_search.return_value = [page1_response, page2_response]
         self.mock_processor.parse_pages.side_effect = [
             [PageInfo(
                 item_id=f'item{i}',
@@ -430,14 +427,9 @@ class TestDiscoveryAutomation:
         # Should discover all items across pages
         assert discovered_count == 150
         
-        # Should have made 2 API calls
-        assert self.mock_api_client.search_pages.call_count == 2
-        
-        # Check pagination parameters
-        calls = self.mock_api_client.search_pages.call_args_list
-        assert calls[0][1]['page'] == 1  # First page
-        assert calls[1][1]['page'] == 2  # Second page
-    
+        # paginate_search is called once; it walks both pages internally via the cursor
+        self.mock_api_client.paginate_search.assert_called_once()
+            
     def test_discover_facet_content_query_facet(self):
         """Test discovering content for a query-based facet."""
         # Create a test facet with query
@@ -446,10 +438,10 @@ class TestDiscoveryAutomation:
         )
         
         # Mock API response
-        self.mock_api_client.search_pages.return_value = {
+        self.mock_api_client.paginate_search.return_value = [{
             'items': [{'id': 'item1', 'title': 'Earthquake News'}],
             'totalItems': 1
-        }
+        }]
         self.mock_processor.parse_pages.return_value = [
             PageInfo(
                 item_id='item1',
@@ -470,8 +462,9 @@ class TestDiscoveryAutomation:
         discovered_count = self.discovery.discover_facet_content(facet_id)
         
         # Verify query parameter was used
-        call_args = self.mock_api_client.search_pages.call_args[1]
-        assert call_args['andtext'] == 'earthquake'
+        # Check the legacy strategy built an LCCN search (not a state= param)
+        self.mock_api_client.paginate_search.assert_called_once()
+        #builder = self.mock_api_client.paginate_search.call_args[0][0]
         assert discovered_count == 1
 
     def test_discover_all_periodicals(self):

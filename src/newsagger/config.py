@@ -12,7 +12,7 @@ from dotenv import load_dotenv
 
 from .api_params import LegacyQueryBuilder, LocGovQueryBuilder
 from .processor_new import LegacyProcessor, LocGovProcessor
-
+from .facet_strategy import LegacyFacetQueryStrategy, LocGovFacetQueryStrategy
 
 class Config:
     """Configuration management class."""
@@ -35,10 +35,12 @@ class Config:
             self.loc_base_url = r'https://chroniclingamerica.loc.gov/'
             self.query_builder_class = LegacyQueryBuilder
             self.processor_class = LegacyProcessor
+            self.facet_strategy_class = LegacyFacetQueryStrategy
         elif self.api_version == 'LOC_2026':
             self.loc_base_url = r'www.loc.gov/collections/chronicling-america/'
             self.query_builder_class = LocGovQueryBuilder
             self.processor_class = LocGovProcessor
+            self.facet_strategy_class = LocGovFacetQueryStrategy
         else:
             raise ValueError("config api_version must be LEGACY or LOC_2026")   
              
@@ -128,5 +130,10 @@ class Config:
             'query_builder_class': self.query_builder_class
         }
     
+    def get_facet_strategy_config(self) -> dict:
+        """Get query builder configuration."""
+        return {
+            'facet_strategy_class': self.facet_strategy_class
+        }
 # Global configuration instance
 config = Config()

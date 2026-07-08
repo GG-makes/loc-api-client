@@ -546,7 +546,12 @@ The goal is to maintain compatibility across supported development environments 
     - [ ] FacetQueryStrategy unit tests (legacy state LCCN-sampling incl. the
           no-periodicals None case; loc.gov native; date_range/combined/query)
     - [ ] Rewrite test_get_page_metadata (skipped Phase 3 placeholder)
-- [ ] Validate discovery workflows — BLOCKED on CAPTCHA/cursor-resume
+- [ ] Validate discovery workflows
+    - [x] LIVE: paginate_search cursor-follow + start_url resume verified against
+          loc.gov (2026-07-07) — walked distinct pages, resume landed on page 2,
+          and the client's retry handled a live IncompleteRead
+    - [ ] Residual: full discover_facet_content resume orchestration from a seeded
+          captcha_retry facet not yet run end-to-end
 - [ ] Validate ingestion workflows
     - [ ] BLOCKED on item-detail enrichment (not yet built):
         - [ ] fulltext_url column + PageInfo field
@@ -574,12 +579,14 @@ still works; only resume is broken. Fix = persist the cursor, not a page number:
 
 ## Phase 4: Cleanup
 
-- [ ] Remove dead / duplicated code
-    - [x] DiscoveryManager batch twin (_process_issue_from_batch,
-          _handle_captcha_during_batch_discovery) — removed
-    - [x] api_client.py dead module — removed
-    - [ ] discovery_manager._extract_city — unused (kept for now, or remove)
-    - [ ] search_pages + FacetSearchParamsBuilder (after the facet work validates)
+- [ ] Remove now-dead code (unblocked by the facet work)
+    - [x] search_pages (rate_limited_client.py) removed; tests migrated to
+          search(builder) / deleted
+    - [x] FacetSearchParamsBuilder.build_search_params (facet_processor.py) removed
+          (class kept for the still-live adjust_batch_size_for_facet — now
+          misnamed; optional rename/rehome as a follow-up)
+    - [x] discovery_manager._extract_city — already gone (removed with the
+          state/city enrichment); stale checklist line
 - [ ] Remove legacy-specific CLI commands
 - [ ] Remove obsolete code paths
     - [ ] get_newspapers: filter state via the `state` column, not place LIKE

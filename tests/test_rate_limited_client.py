@@ -147,32 +147,6 @@ class TestLocApiClient:
         assert len(newspapers) == 2
         assert newspapers[0].lccn == 'sn123'
         assert newspapers[1].lccn == 'sn456'
-
-    @responses.activate
-    def test_search_pages_with_facets(self):
-        """Test search with date facets."""
-        responses.add(
-            responses.GET,
-            'https://chroniclingamerica.loc.gov/search/pages/results/',
-            json={
-                'items': [{'id': 'item1', 'title': 'Test Page'}],
-                'totalItems': 1
-            },
-            status=200
-        )
-        
-        client = LocApiClient()
-        result = client.search_pages(
-            andtext='earthquake',
-            date1='1906',
-            date2='1906',
-            dates_facet='1906/1906'
-        )
-        
-        assert 'items' in result
-        assert result['totalItems'] == 1  # Check we got the response
-        assert len(result['items']) == 1
-        assert result['items'][0]['id'] == 'item1'
     
     @pytest.mark.skip(
         reason="No client page-metadata method yet — blocked on item-detail enrichment "
@@ -315,17 +289,3 @@ class TestGetAllBatchesAndCount:
         client._make_request = Mock(return_value={'pagination': {'total': 99}})
 
         assert client.get_count(fake_builder) == 99
-
-
-class TestSearchPagesEndpointSelection:
-    """search_pages routes loc.gov-shaped params to base_url directly, legacy-shaped to the sub-path."""
-
-    def setup_method(self):
-        RateLimitedRequestManager._instance = None
-
-    def test_legacy_shaped_params_use_search_pages_results_endpoint(self):
-        client = LocApiClient()
-        client._make_request = Mock(return_value={})
-        client.search_pages(andtext='flood')
-        args, _ = client._make_request.call_args
-        assert args[0] == 'search/pages/results/'

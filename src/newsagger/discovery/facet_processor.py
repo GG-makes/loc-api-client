@@ -72,83 +72,19 @@ class FacetStatusValidator:
         
         return facet
 
-
-class FacetSearchParamsBuilder:
-    """Builds search parameters for different facet types."""
-    
-    def __init__(self, logger: Optional[logging.Logger] = None):
-        self.logger = logger or logging.getLogger(__name__)
-    
-    def build_search_params(self, facet: Dict[str, Any], page: int, batch_size: int) -> Dict[str, Any]:
-        """
-        Build search query parameters based on facet type.
-        
-        Args:
-            facet: Facet data dictionary
-            page: Current page number
-            batch_size: Items per page
-            
-        Returns:
-            Search parameters dictionary
-        """
-        # Base search parameters
-        search_params = {
-            'page': page,
-            'rows': batch_size
-        }
-        
-        facet_type = facet['facet_type']
-        facet_value = facet['facet_value']
-        
-        if facet_type == 'date_range':
-            # Parse date range like "1906/1906"
-            start_date, end_date = facet_value.split('/')
-            search_params['date1'] = start_date
-            search_params['date2'] = end_date
-            # dateFilterType will be automatically added by rate_limited_client.py
-            
-        elif facet_type == 'state':
-            # For state facets, use state parameter
-            search_params['state'] = facet_value
-            
-        elif facet_type == 'combined':
-            # Parse combined facet like "state:California|date_range:1906/1906"
-            parts = facet_value.split('|')
-            for part in parts:
-                if ':' in part:
-                    param_type, param_value = part.split(':', 1)
-                    if param_type == 'state':
-                        search_params['state'] = param_value
-                    elif param_type == 'date_range':
-                        start_date, end_date = param_value.split('/')
-                        search_params['date1'] = start_date
-                        search_params['date2'] = end_date
-                        
-        else:
-            self.logger.warning(f"Unknown facet type: {facet_type}")
-        
-        return search_params
-    
-    def adjust_batch_size_for_facet(self, facet: Dict[str, Any], batch_size: int) -> int:
-        """
-        Adjust batch size based on facet type to avoid timeouts.
-        
-        Args:
-            facet: Facet data dictionary
-            batch_size: Original batch size
-            
-        Returns:
-            Adjusted batch size
-        """
-        if facet['facet_type'] == 'state':
-            # Use smaller batches for state searches to avoid timeouts
-            adjusted_size = min(batch_size, 50)
-            if adjusted_size != batch_size:
-                self.logger.info(f"Using smaller batch size ({adjusted_size}) for state facet to avoid timeouts")
-            return adjusted_size
-        
-        return batch_size
-
+def adjust_batch_size_for_facet(facet: Dict[str, Any], batch_size: int,
+                                logger: Optional[logging.Logger] = None) -> int:
+    """
+    Adjust batch size by facet type to avoid timeouts. State facets use a
+    smaller batch; other types are unchanged.
+    """
+    logger = logger or logging.getLogger(__name__)
+    if facet['facet_type'] == 'state':
+        adjusted_size = min(batch_size, 50)
+        if adjusted_size != batch_size:
+            logger.info(f"Using smaller batch size ({adjusted_size}) for state facet to avoid timeouts")
+        return adjusted_size
+    return batch_size
 
 class FacetDiscoveryContext:
     """Context object for managing facet discovery state."""

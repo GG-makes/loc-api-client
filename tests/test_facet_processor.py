@@ -12,7 +12,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent / 'src'))
 
 from newsagger.discovery.facet_processor import (
     FacetStatusValidator,
-    FacetSearchParamsBuilder,
+    adjust_batch_size_for_facet,
     FacetDiscoveryContext
 )
 
@@ -90,102 +90,20 @@ class TestFacetStatusValidator:
         assert result == facet
         assert not validator.storage.update_facet_discovery.called
 
+class TestAdjustBatchSizeForFacet:
+    """adjust_batch_size_for_facet: state facets get a smaller batch."""
 
-class TestFacetSearchParamsBuilder:
-    """Test FacetSearchParamsBuilder class."""
-    
-    @pytest.fixture
-    def builder(self):
-        """Create a FacetSearchParamsBuilder instance."""
+    def test_state_facet_capped_at_50(self):
         logger = Mock()
-        return FacetSearchParamsBuilder(logger)
-    
-    def test_build_date_range_params(self, builder):
-        """Test building search parameters for date range facet."""
-        facet = {
-            'facet_type': 'date_range',
-            'facet_value': '1906/1907'
-        }
-        
-        params = builder.build_search_params(facet, page=2, batch_size=50)
-        
-        expected = {
-            'page': 2,
-            'rows': 50,
-            'date1': '1906',
-            'date2': '1907'
-        }
-        assert params == expected
-    
-    def test_build_state_params(self, builder):
-        """Test building search parameters for state facet."""
-        facet = {
-            'facet_type': 'state',
-            'facet_value': 'California'
-        }
-        
-        params = builder.build_search_params(facet, page=1, batch_size=100)
-        
-        expected = {
-            'page': 1,
-            'rows': 100,
-            'state': 'California'
-        }
-        assert params == expected
-    
-    def test_build_combined_params(self, builder):
-        """Test building search parameters for combined facet."""
-        facet = {
-            'facet_type': 'combined',
-            'facet_value': 'state:California|date_range:1906/1906'
-        }
-        
-        params = builder.build_search_params(facet, page=1, batch_size=25)
-        
-        expected = {
-            'page': 1,
-            'rows': 25,
-            'state': 'California',
-            'date1': '1906',
-            'date2': '1906'
-        }
-        assert params == expected
-    
-    def test_build_unknown_facet_type(self, builder):
-        """Test building search parameters for unknown facet type."""
-        facet = {
-            'facet_type': 'unknown',
-            'facet_value': 'test'
-        }
-        
-        params = builder.build_search_params(facet, page=1, batch_size=50)
-        
-        expected = {
-            'page': 1,
-            'rows': 50
-        }
-        assert params == expected
-        
-        # Should log warning
-        builder.logger.warning.assert_called_once_with("Unknown facet type: unknown")
-    
-    def test_adjust_batch_size_for_state(self, builder):
-        """Test batch size adjustment for state facets."""
-        facet = {'facet_type': 'state'}
-        
-        adjusted = builder.adjust_batch_size_for_facet(facet, 100)
-        
-        assert adjusted == 50  # Should be capped at 50
-        builder.logger.info.assert_called_once()
-    
-    def test_adjust_batch_size_for_date_range(self, builder):
-        """Test batch size adjustment for date range facets."""
-        facet = {'facet_type': 'date_range'}
-        
-        adjusted = builder.adjust_batch_size_for_facet(facet, 100)
-        
-        assert adjusted == 100  # Should remain unchanged
-        assert not builder.logger.info.called
+        adjusted = adjust_batch_size_for_facet({'facet_type': 'state'}, 100, logger)
+        assert adjusted == 50
+        logger.info.assert_called_once()
+
+    def test_date_range_facet_unchanged(self):
+        logger = Mock()
+        adjusted = adjust_batch_size_for_facet({'facet_type': 'date_range'}, 100, logger)
+        assert adjusted == 100
+        assert not logger.info.called
 
 
 class TestFacetDiscoveryContext:

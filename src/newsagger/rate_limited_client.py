@@ -632,49 +632,6 @@ class LocApiClient:
                 break
             yield newspaper
             count += 1
-
-    
-    def search_pages(self, **params) -> Dict:
-        """
-        Search newspaper pages with various parameters.
-
-        Common parameters:
-        - andtext: Search text
-        - date1, date2: Date range (YYYY-MM-DD or YYYY)
-        - page: Page number
-        - rows: Results per page
-        - sort: Sort order
-
-        If params already contains 'fo' (loc.gov's format key — e.g. from a
-        LocGovQueryBuilder.build() dict), the request is already fully formed.
-        Pass it through unmodified rather than injecting legacy-only defaults
-        (format=json, dateFilterType) on top of it.
-
-        Note this is a temporary update to solve an immediate bug, 
-        and not consistent with the migration refactor. 
-        """
-        # Add default format
-        #TODO: Uses old parameters that have been renamed.
-        search_params = {'format': 'json'}
-        search_params.update(params)
-
-        # Handle date parameters and add proper dateFilterType
-        if 'date1' in search_params and 'date2' in search_params:
-            date1 = search_params['date1']
-            date2 = search_params['date2']
-
-            if len(date1) == 4 and len(date2) == 4:
-                search_params['dateFilterType'] = 'yearRange'
-            elif len(date1) == 4:
-                search_params['date1'] = f'01/01/{date1}'
-                search_params['dateFilterType'] = 'range'
-            elif len(date2) == 4:
-                search_params['date2'] = f'12/31/{date2}'
-                search_params['dateFilterType'] = 'range'
-            else:
-                search_params['dateFilterType'] = 'range'
-
-        return self._make_request('search/pages/results/', search_params)
         
     def paginate_search(self, builder, start_url: str = None) -> Generator[Dict, None, None]:
         """

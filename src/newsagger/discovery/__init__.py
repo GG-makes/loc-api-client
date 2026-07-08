@@ -4,12 +4,12 @@ Discovery package for facet processing and content discovery management.
 
 from .facet_processor import (
     FacetStatusValidator,
-    FacetSearchParamsBuilder,
+    adjust_batch_size_for_facet,
     FacetDiscoveryContext
 )
 
 __all__ = [
     'FacetStatusValidator',
-    'FacetSearchParamsBuilder', 
+    'adjust_batch_size_for_facet', 
     'FacetDiscoveryContext'
 ]

@@ -168,9 +168,10 @@ class TestIntegration:
         )
         
         # Execute workflow
-        # 1. Search pages
-        api_response = client.search_pages(andtext='earthquake', date1='1906', date2='1906')
-        
+        # 1. Search pages (query builder + client.search)
+        builder = LegacyQueryBuilder.from_cli(text='earthquake', date1='1906', date2='1906')
+        api_response = client.search(builder)
+                
         # 2. Process results
         pages = processor.parse_pages(api_response)
         

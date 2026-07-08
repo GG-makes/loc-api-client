@@ -16,7 +16,7 @@ from .storage import NewsStorage
 from .api_params import ChroniclingAmericaSearchParams
 from .discovery.facet_processor import (
     FacetStatusValidator,
-    FacetSearchParamsBuilder,
+    adjust_batch_size_for_facet,
     FacetDiscoveryContext
 )
 
@@ -373,8 +373,7 @@ class DiscoveryManager:
             self.logger.debug(f"Facet {facet_id} status updated")
 
         # Initialize search parameter builder with batch size adjustment
-        params_builder = FacetSearchParamsBuilder(self.logger)
-        adjusted_batch_size = params_builder.adjust_batch_size_for_facet(facet, batch_size)
+        adjusted_batch_size = adjust_batch_size_for_facet(facet, batch_size)
         discovery_context.batch_size = adjusted_batch_size
         
         try:

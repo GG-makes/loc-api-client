@@ -511,82 +511,114 @@ The goal is to maintain compatibility across supported development environments 
 
 ## Phase 2: Refactoring
 
-- [x] Introduce centralised query construction logic
-      (LegacyQueryBuilder / LocGovQueryBuilder)
-- [x] Separate API-specific response handling concerns from application
-      workflows (processor_new ResponseProcessor hierarchy)
 - [ ] Remove assumptions tied only to the retired API
-    - [x] Newspaper list: build_newspaper_list + fetch_all_newspapers; client
-          get_all_newspapers yields NewspaperInfo
-    - [x] titles/?fo=json&c=150 (confirmed live); baked into build_newspaper_list
-    - [x] NewspaperInfo structured state/city, persisted to newspapers + periodicals
-    - [x] Batch discovery bulk path fixed (process_issue_from_batch → parse_issue;
-          added LegacyResponseProcessor.parse_issue)
-    - [x] Per-title issue discovery removed, not migrated (ADR 0006)
-    - [ ] Retire search_pages / migrate discover_facet_content (IN PROGRESS)
-        - [x] FacetQueryStrategy twin pair (facet_strategy.py), config-selected:
-              legacy LCCN-sampling preserved (ADR 0004/0005); loc.gov native
-              location_state filter
-        - [x] discover_facet_content builds via facet_strategy + walks
-              paginate_search (no longer calls search_pages); per-response store
-              fix (was storing only the last page)
-        - [ ] CAPTCHA + cursor-based resume rework — BLOCKER, see below
-        - [ ] delete search_pages; remove FacetSearchParamsBuilder
-              (build_search_params now dead; adjust_batch_size_for_facet needs a home)
+    - [x] **Newspaper list.** Replaced the legacy `newspapers.json` fetch with a
+          `build_newspaper_list` builder method feeding NewspaperInfo objects.
+          Why: the loc.gov titles endpoint returns state/city as structured
+          fields — a fidelity gain over legacy free-text place-of-publication
+          strings, which could only be split into city/state heuristically.
+    - [x] **Batch discovery.** Migrated the bulk issue path to parse loc.gov's
+          issue-detail shape (`parse_issue`). Why: the batch-list and issue
+          structures changed under loc.gov, so the legacy issue parser no longer
+          matched the response.
+    - [x] **Per-title issue discovery.** Removed rather than migrated. Why:
+          loc.gov has no dedicated per-title issue endpoint; the same data comes
+          from the page-search endpoint with `dl=issue`, so the standalone
+          workflow was redundant. (ADR 0006)
+    - [x] **Facet discovery query.** Moved `discover_facet_content` off the retired
+          `search_pages` shim onto a config-selected FacetQueryStrategy twin.
+          Why: query construction differs per API version — legacy samples LCCNs
+          to approximate a state filter, loc.gov filters on `location_state`
+          natively — so the divergence lives behind paired strategy classes rather
+          than an `if version` branch in the discovery loop. (ADR 0001, 0005)
+    - [x] **Pagination.** Replaced page-number pagination with cursor pagination.
+          Why: the loc.gov API supports cursor pagination natively (follow
+          `pagination.next`) but exposes no result-page number to resume from —
+          its `sp` parameter is the *physical newspaper page*, not a response-page
+          index. (ADR 0002)
 - [x] Separate API-specific query concerns from application workflows
-    - [x] _convert_newspaper_to_periodical and list_newspapers consume NewspaperInfo
-    - [x] discover_facet_content off the legacy search_pages shim (via FacetQueryStrategy)
+- [ ] **Add item-detail enrichment** — a capability the legacy module never had.
+      Why: legacy search results already carried PDF / JP2 / OCR URLs directly, so
+      no extra request was ever needed. loc.gov search results deliberately omit
+      them — search is for discovery, not asset delivery — so download-ready URLs
+      now require a separate per-page item-detail fetch. This is *new capability
+      the API requires*, not a migrated legacy assumption, which is why it sits in
+      refactoring rather than in cleanup. (ADR 0003)
+    - [ ] `fulltext_url` column (pages table) + PageInfo field — somewhere to store
+          the resolved OCR/asset URLs.
+    - [ ] `enrich_from_detail` on ResponseProcessor — the twin hook that reads
+          `resource.pdf` / `resource.image` / `resource.fulltext_file` from the
+          item-detail response (legacy is a no-op; its search results already
+          carry the URLs).
+    - [ ] wire DownloadProcessor._download_page to call enrichment lazily when a
+          page's asset URL is NULL, then download.
 
 ## Phase 3: Validation
 
-- [ ] Add migration regression tests
-    - [x] Builder unit tests (build_newspaper_list / fetch_all_newspapers)
-    - [x] parse_newspapers state/city; storage migration + round-trip
-    - [x] Batch discovery test reaching parse_issue on a loc.gov issue shape
-    - [ ] FacetQueryStrategy unit tests (legacy state LCCN-sampling incl. the
-          no-periodicals None case; loc.gov native; date_range/combined/query)
-    - [ ] Rewrite test_get_page_metadata (skipped Phase 3 placeholder)
-- [ ] Validate discovery workflows
-    - [x] LIVE: paginate_search cursor-follow + start_url resume verified against
-          loc.gov (2026-07-07) — walked distinct pages, resume landed on page 2,
-          and the client's retry handled a live IncompleteRead
-    - [ ] Residual: full discover_facet_content resume orchestration from a seeded
-          captcha_retry facet not yet run end-to-end
-- [ ] Validate ingestion workflows
-    - [ ] BLOCKED on item-detail enrichment (not yet built):
-        - [ ] fulltext_url column + PageInfo field
-        - [ ] enrich_from_detail on ResponseProcessor
-        - [ ] wire DownloadProcessor._download_page lazy enrichment
+- [ ] **Regression tests** — catch incompatible API changes and pin the migrated
+      query/parse behaviour so future API drift is detectable, not silent.
+    - [x] **Builder unit tests** (build_newspaper_list / fetch_all_newspapers) —
+          pin the new-API request shape (endpoint + params) so a regression in
+          query construction fails a test rather than a live run.
+    - [x] **Newspaper parse + storage round-trip** — the loc.gov titles response
+          parses into NewspaperInfo with structured state/city, and survives a
+          storage write/read. Why: the state/city fidelity gain is only real if
+          it persists correctly, not just parses.
+    - [x] **Batch discovery integration test** — drives the bulk path through to
+          `parse_issue` on a real loc.gov issue shape. Why: this path broke
+          silently before (mocked seams hid a call to a removed method); an
+          integration-shaped test catches composition errors that unit mocks miss.
+    - [x] **FacetQueryStrategy unit tests** (tests/test_facet_strategy.py) — cover
+          both twins: legacy LCCN-sampling (incl. the no-periodicals None case)
+          and loc.gov native state/date/combined filtering. Why: the twins are the
+          migration's core seam, so both sides need direct coverage. (ADR 0001)
+    - [ ] **Rewrite test_get_page_metadata** — currently a skipped placeholder.
+          What's needed: a real test asserting the final page-metadata shape.
+          Why deferred: page metadata now depends on item-detail enrichment (PDF/
+          JP2/OCR URLs), which isn't built yet, so there's no final shape to assert
+          until ingestion (below) lands. (ADR 0003)
 
-### Facet discovery: CAPTCHA + cursor-based resume (next session)
+- [ ] **Validate discovery workflows** — prove discovery walks loc.gov against the
+      live API, not just against mocks.
+    - [x] **LIVE: cursor pagination + resume** — verified against loc.gov
+          (2026-07-07): paginate_search followed `pagination.next` across distinct
+          pages, `start_url=` resumed onto page 2, and the client's retry absorbed
+          a live IncompleteRead. Why it matters: mocks can't prove the cursor
+          actually advances — an earlier bug walked page 1 forever and passed every
+          unit test. (ADR 0002)
+    - [x] **Residual: full facet-level resume** — the resume wiring (context reads resume_cursor
+          → passes it as paginate_search `start_url` → checkpoints each page's
+          `pagination.next`) is covered by two integration tests that drive the
+          real discover_facet_content against a fake client.
 
-Cursor pagination (pagination.next) has no page number to resume from, so
-resume currently restarts a facet from page 1 — unusable on the CAPTCHA-prone
-loc.gov path (re-fetching prior pages re-triggers CAPTCHAs). Detection/blocking
-still works; only resume is broken. Fix = persist the cursor, not a page number:
-
-- [ ] paginate_search(builder, start_url=None) — resume entry point
-- [ ] track pagination.next per response; persist it on interruption
-      (per-response checkpoint vs only-on-CAPTCHA — decision pending)
-- [ ] storage: add resume_cursor TEXT to search_facets (+ migration); wire
-      update_facet_discovery / get_search_facet
-- [ ] FacetDiscoveryContext resumes from resume_cursor
-- [ ] retire dead page-number scaffolding: resume_from_page, current_page-as-driver,
-      the now-unreachable discovery_interrupted completion branches
-- [ ] update CAPTCHA facet tests to the cursor-resume model
-      (safety net: dedup + INSERT OR REPLACE make resume idempotent, so this is
-      an efficiency/rate-limit fix, not a correctness one)
+- [ ] **Validate ingestion workflows** — prove a download actually lands a file on
+      disk. This is the migration's real finish line.
+    - [ ] **BLOCKED on item-detail enrichment (not yet built).** Why blocked:
+          loc.gov search results carry no PDF/JP2/OCR URLs — unlike the legacy
+          search response, which included them — so there is nothing to download
+          until a per-page item-detail fetch supplies them. Building that unblocks
+          this whole group. (ADR 0003)
+        - [ ] `fulltext_url` column (pages table) + PageInfo field — somewhere to
+              store the resolved OCR/asset URLs.
+        - [ ] `enrich_from_detail` on ResponseProcessor — the twin hook that reads
+              `resource.pdf` / `resource.image` / `resource.fulltext_file` from the
+              item-detail response (legacy is a no-op; its search results already
+              carry the URLs).
+        - [ ] wire DownloadProcessor._download_page to call enrichment lazily when
+              a page's asset URL is NULL, then download.
 
 ## Phase 4: Cleanup
 
-- [ ] Remove now-dead code (unblocked by the facet work)
-    - [x] search_pages (rate_limited_client.py) removed; tests migrated to
-          search(builder) / deleted
-    - [x] FacetSearchParamsBuilder.build_search_params (facet_processor.py) removed
-          (class kept for the still-live adjust_batch_size_for_facet — now
-          misnamed; optional rename/rehome as a follow-up)
-    - [x] discovery_manager._extract_city — already gone (removed with the
-          state/city enrichment); stale checklist line
+- [x] Remove now-dead code (unblocked by the facet work)
+    - [x] **Removed `search_pages`** (rate_limited_client.py). Why: the legacy
+          shim posting to the retired `search/pages/results/` endpoint;
+          `discover_facet_content` was its last caller and now walks the cursor.
+    - [x] **Removed `build_search_params`**; collapsed FacetSearchParamsBuilder to a
+          standalone `adjust_batch_size_for_facet` function** (facet_processor.py).
+          Why: the FacetQueryStrategy twins replaced the param builder, leaving one
+          orphaned method (batch-size tuning) that didn't warrant a class. (ADR 0001)
+    - [x] **`_extract_city` already gone** — removed earlier with the state/city
+          enrichment; this was a stale checklist line.
 - [ ] Remove legacy-specific CLI commands
 - [ ] Remove obsolete code paths
     - [ ] get_newspapers: filter state via the `state` column, not place LIKE
@@ -596,16 +628,19 @@ still works; only resume is broken. Fix = persist the cursor, not a page number:
 - [ ] Resolve deferred, non-blocking TODOs: download_newspaper --estimate-only,
       search_text (get_count vs paginate), tui_monitor (timeout NameError;
       cross-process rate-limit singleton), merge_databases phantom columns
-- [ ] Retire page-number tracking (resume_from_page, current_page) from facet
-      discovery once cursor resume is proven in the field. Blocked on reworking
-      validate_and_fix_facet_status (facet_processor.py), which uses them to
-      detect incorrectly-completed facets — don't remove the columns until that
-      detection is ported to the cursor model.
 
 Decisions recorded as ADRs (docs/adr/): 0001 builder/processor split · 0002
 loc.gov sp/cursor pagination · 0003 lazy item-detail enrichment (Proposed) ·
 0004 defer pre-existing defects · 0005 keep legacy alive for its test suite ·
 0006 remove per-title issue discovery.
+
+## Deferred Decisions - Post Migration TO-DOs:
+- [ ] Retire page-number tracking (resume_from_page, current_page) from facet
+      discovery once cursor resume is proven in the field. Blocked on reworking
+      validate_and_fix_facet_status (facet_processor.py), which uses them to
+      detect incorrectly-completed facets — don't remove the columns until that
+      detection is ported to the cursor model (ADR0004, ADR0007).
+- [ ] Retire legacy api knowledge. Remove the legacy option from the config, delete the            legacy-specific classes from api_params.py, processor_new.py, and facet_strategy.py.
 
 # Design Principles
 

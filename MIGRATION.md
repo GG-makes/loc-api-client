@@ -171,36 +171,85 @@ Of the three endpoint pairs, **Page search** and **Batch list** are modeled on b
 Source: `at=`/`pagination.total` mechanism confirmed via
 [investigate_new_response_format.py](investigate_new_response_format.py).
 
+### Text and Image Retrieval by API Version
+
+How download-ready assets (PDF, JP2 image, OCR text) are located and fetched
+differs sharply between the two APIs. Legacy search responses were
+self-contained; loc.gov search is discovery-only and requires a per-page
+item-detail fetch ("enrichment") to resolve asset URLs. Confirmed via live
+probe 2026-07-09.
+
+**Where asset URLs come from**
+
+| Asset | Legacy | loc.gov |
+|---|---|---|
+| PDF | search: constructed `{base}.pdf`; page-detail: `pdf` field | item detail: `resource['pdf']` — direct storage-services URL |
+| JP2 image | search: constructed `{base}.jp2`; page-detail: `jp2` field | item detail: **constructed** `resource['pdf'].replace('.pdf','.jp2')` — see note |
+| OCR text | search: inline text in `ocr_eng`; page-detail: `text` (a URL); issue: constructed `{base}/ocr.txt` | item detail: `resource['fulltext_file']` (a URL) — see note |
+
+**Retrieval flow**
+
+Legacy — search response is self-contained:
+```
+search  →  PDF/JP2 URLs constructible + OCR text inline (ocr_eng)  →  download assets
+```
+
+loc.gov — three stages:
+```
+search (discovery)        →  no asset URLs in results, only a ~1000-char
+                             OCR snippet in `description`
+item detail (enrichment)  →  resource.pdf / resource.image / resource.fulltext_file
+                             →  spot pdf_url, jp2_url (constructed), ocr_url
+asset download (fetch)    →  PDF : GET direct
+                             JP2 : GET constructed .jp2 path
+                             OCR : GET ocr_url → JSON → extract full_text
+```
+
+
+**Notes / gotchas (loc.gov)**
+
+- **JP2 is not returned directly.** `resource['image']` is a low-res IIIF preview
+  (`.../full/pct:6.25/0/default.jpg`, ~6% scale). The full JP2 (~4 MB) lives at the
+  storage-services path, obtained by swapping the PDF's extension:
+  `resource['pdf'].replace('.pdf','.jp2')`. This mirrors legacy's own `{base}.jp2`
+  construction. The raw JP2 returns **no `content-type` header** — write bytes
+  without validating type.
+- **`fulltext_file` returns JSON, not plain text.** It is the word-coordinates
+  service (`format=alto_xml&full_text=1`); the OCR text is nested at `full_text`
+  under a dynamic segment key: `next(iter(response.values()))['full_text']`.
+- **Three requests per page for full OCR** (search → item detail → fulltext) vs one
+  under legacy — though search is amortised (~150 hits/request), so the real cost
+  is ~2 requests per fetched page. Batch `.tar.bz2` archives (ALTO XML) are more
+  efficient only for *bulk-fraction* work; for selective keyword queries, per-page
+  enrichment fetches only matching pages and wins. See ADR 0003 (Alternatives).  
+
+**Storage mapping (pages table)**
+
+| Column | Legacy | loc.gov |
+|---|---|---|
+| `pdf_url` | constructed / detail `pdf` | `resource['pdf']` |
+| `jp2_url` | constructed / detail `jp2` | constructed from `pdf` |
+| `ocr_url` | detail `text` / issue-constructed | `resource['fulltext_file']` |
+| `ocr_text` | inline `ocr_eng` (text) | NULL — fetched to file at download, with `ocr_fetched=1` |
+| `enriched` | n/a (search self-contained) | 1 after item-detail fetch |
+
+
 ### PageInfo Field Changes
 
-The new API does not include image or full OCR URLs in search results. These were available directly in the legacy API's search response; the new API requires a separate item detail request to retrieve them. This reflects standard metadata API design — search results are for discovery, not bulk delivery of download-ready assets.
+The new API does not include image or OCR asset URLs in search results. Under
+legacy, OCR text was returned inline (`ocr_eng`) and PDF/JP2 URLs were
+constructible from the page URL; the new API requires a separate item-detail
+request to resolve all of them. This reflects standard metadata API design —
+search results are for discovery, not bulk delivery of download-ready assets.
+See *Text and Image Retrieval by API Version* below for the full picture.
 
 | Field | Legacy (search result) | New API (search result) | Resolution |
 |---|---|---|---|
-| `item_id` | `id` (string) | `id` (string) | unchanged |
-| `lccn` | `lccn` (string) | `number_lccn[0]` (list) | extract first element |
-| `title` | `title` (string) | `partof_title[0]` (list) | extract first element |
-| `date` | `YYYYMMDD` → conversion required | already `YYYY-MM-DD` | conversion removed |
-| `edition` | `edition` (int) | `number_edition[0]` (list) | extract, parse int |
-| `sequence` | `sequence` (int) | not a reliable field | parsed from `?sp=N` in `id` URL |
-| `page_url` | `id` (string) | `id` (string) | unchanged |
-| `pdf_url` | `pdf` (direct, search result) | not in search results | item detail required |
-| `jp2_url` | `image` (direct, search result) | not in search results | item detail required |
-| `ocr_text` | full OCR text (`ocr_eng`) | ~1000 char snippet (`description`) | full text requires separate fetch (see below) |
+| `pdf_url` | constructed `{base}.pdf` (not a returned field) | not in search results | item detail: `resource['pdf']` |
+| `jp2_url` | constructed `{base}.jp2` (not a returned field) | not in search results | item detail: constructed `resource['pdf'].replace('.pdf','.jp2')` — `resource['image']` is only a ~6% preview |
+| `ocr_url` | n/a in search (text was inline); page-detail `text` / issue `{base}/ocr.txt` are URLs | not in search results | item detail: `resource['fulltext_file']` |
+| `ocr_text` | full OCR text inline (`ocr_eng`) | ~1000-char snippet (`description`) | loc.gov: fetched at download from `ocr_url` (JSON → `full_text`); see *Text and Image Retrieval by API Version* |
 | `word_count` | `word_count` (int) | not available | stored as `None` |
-
-### Full OCR Text
-
-The `description` field in search results is a truncated OCR snippet of approximately 1000 characters. It is sufficient for discovery — confirming that a page has content — but not for full-text indexing or research use.
-
-Full OCR text requires two additional requests per page beyond discovery:
-
-1. **Item detail** — fetch `{page_url}?fo=json` → read `resource.fulltext_file`, which is a URL pointing to the page's plain-text OCR file
-2. **OCR fetch** — fetch that URL → full OCR text as a plain text response
-
-This means the per-page download workflow now makes three API calls where the legacy workflow made one (search result included everything). The rate limiter must account for this when bulk downloading with OCR.
-
-For bulk-scale OCR ingestion, the batch archive files (`.tar.bz2` linked from the batch list endpoint) contain ALTO XML OCR files for every page and are substantially more efficient than per-page API calls. This was true under the legacy API as well and remains the recommended approach for large-scale text corpus work.
 
 ### Response Structure
 
@@ -248,9 +297,9 @@ response['item']['number_lccn']       # list
 response['item']['location_state']    # list
 response['item']['location_city']     # list
 response['item']['batch']             # list
-response['resource']['pdf']           # tile.loc.gov PDF URL
-response['resource']['image']         # tile.loc.gov JP2/IIIF URL
-response['resource']['fulltext_file'] # OCR text service URL (full text)
+response['resource']['pdf']           # direct storage-services PDF URL
+response['resource']['image']         # IIIF preview JPEG (~6% scale) — NOT the JP2
+response['resource']['fulltext_file'] # word-coordinates service — returns JSON with nested full_text
 response['pagination']['current']     # page sequence number
 ```
 
@@ -544,14 +593,18 @@ The goal is to maintain compatibility across supported development environments 
       now require a separate per-page item-detail fetch. This is *new capability
       the API requires*, not a migrated legacy assumption, which is why it sits in
       refactoring rather than in cleanup. (ADR 0003)
-    - [ ] `fulltext_url` column (pages table) + PageInfo field — somewhere to store
-          the resolved OCR/asset URLs.
-    - [ ] `enrich_from_detail` on ResponseProcessor — the twin hook that reads
-          `resource.pdf` / `resource.image` / `resource.fulltext_file` from the
-          item-detail response (legacy is a no-op; its search results already
-          carry the URLs).
-    - [ ] wire DownloadProcessor._download_page to call enrichment lazily when a
-          page's asset URL is NULL, then download.
+    - [ ] Storage: add `ocr_url` + `enriched` + `ocr_fetched` columns (pages) and a
+          `PageInfo.ocr_url` field; switch page re-store to `INSERT OR IGNORE` so
+          re-discovery can't wipe spotted URLs. (see *Text and Image Retrieval by
+          API Version*)
+    - [ ] `enrich_page` twin on ResponseProcessor — legacy no-op; loc.gov fetches
+          item detail, takes `resource.pdf`, constructs the JP2 (`.pdf`→`.jp2`),
+          and takes `resource.fulltext_file` as `ocr_url`.
+    - [ ] `parse_fulltext_response` twin — extract OCR text from the fulltext body
+          (loc.gov: JSON, nested `full_text`; legacy: already text).
+    - [ ] wire DownloadProcessor._download_page: on NULL URLs, `enrich_page` +
+          persist (`enriched=1`); download PDF/JP2; fetch+parse OCR to file, set
+          `ocr_fetched=1`.
 
 ## Phase 3: Validation
 
@@ -593,19 +646,12 @@ The goal is to maintain compatibility across supported development environments 
 
 - [ ] **Validate ingestion workflows** — prove a download actually lands a file on
       disk. This is the migration's real finish line.
-    - [ ] **BLOCKED on item-detail enrichment (not yet built).** Why blocked:
-          loc.gov search results carry no PDF/JP2/OCR URLs — unlike the legacy
-          search response, which included them — so there is nothing to download
-          until a per-page item-detail fetch supplies them. Building that unblocks
-          this whole group. (ADR 0003)
-        - [ ] `fulltext_url` column (pages table) + PageInfo field — somewhere to
-              store the resolved OCR/asset URLs.
-        - [ ] `enrich_from_detail` on ResponseProcessor — the twin hook that reads
-              `resource.pdf` / `resource.image` / `resource.fulltext_file` from the
-              item-detail response (legacy is a no-op; its search results already
-              carry the URLs).
-        - [ ] wire DownloadProcessor._download_page to call enrichment lazily when
-              a page's asset URL is NULL, then download.
+    - [ ] **BLOCKED on item-detail enrichment (Phase 2, in progress).** Why blocked:
+          loc.gov search results carry no PDF/JP2/OCR URLs, so there is nothing to
+          download until enrichment supplies them. Once it lands, validate
+          end-to-end: a selective loc.gov query → discover → enrich → a PDF and an
+          OCR `.txt` actually written to disk (the migration's real finish line).
+          (ADR 0003)
 
 ## Phase 4: Cleanup
 
@@ -630,9 +676,9 @@ The goal is to maintain compatibility across supported development environments 
       cross-process rate-limit singleton), merge_databases phantom columns
 
 Decisions recorded as ADRs (docs/adr/): 0001 builder/processor split · 0002
-loc.gov sp/cursor pagination · 0003 lazy item-detail enrichment (Proposed) ·
-0004 defer pre-existing defects · 0005 keep legacy alive for its test suite ·
-0006 remove per-title issue discovery.
+loc.gov sp/cursor pagination · 0003 lazy item-detail enrichment · 0004 defer
+pre-existing defects · 0005 keep legacy alive for its test suite · 0006 remove
+per-title issue discovery · 0007 defer page-number resume retirement.
 
 ## Deferred Decisions - Post Migration TO-DOs:
 - [ ] Retire page-number tracking (resume_from_page, current_page) from facet

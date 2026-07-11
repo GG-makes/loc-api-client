@@ -12,6 +12,7 @@ from pathlib import Path
 import shutil
 from datetime import datetime
 import os
+import sys
 import sqlite3
 import re
 import traceback
@@ -32,6 +33,16 @@ from .commands.newspaper import newspaper
 @click.option('--verbose', '-v', is_flag=True, help='Enable verbose logging')
 def cli(verbose):
     """Newsagger - Library of Congress News Archive Aggregator"""
+    # Windows consoles default to cp1252, which can't encode the emoji/unicode in
+    # command output — reconfigure the streams to UTF-8 so output never crashes
+    # with UnicodeEncodeError. errors='replace' degrades gracefully if the
+    # terminal still can't render a glyph.
+    if sys.platform == 'win32':
+        for stream in (sys.stdout, sys.stderr):
+            try:
+                stream.reconfigure(encoding='utf-8', errors='replace')
+            except (AttributeError, ValueError):
+                pass
     config = Config()
     if verbose:
         config.log_level = 'DEBUG'
@@ -50,14 +61,17 @@ cli.add_command(newspaper)
 def search_text(text, date1, date2, limit):
     """Search for text across newspaper pages and report match counts.
 
-    Queries the LOC Chronicling America archive for pages containing TEXT
-    and prints a total result count. Results are not saved to the database
-    and pages are not enqueued for download.
+    Queries the LOC Chronicling America archive for pages containing TEXT and
+    prints a total result count. Results are not saved to the database and pages
+    are not enqueued for download.
 
-    This is an exploration tool for scoping a query before committing to
-    bulk acquisition. For actual downloads, use discover-via-batches with
-    --auto-enqueue followed by process-downloads.
-        """
+    Best for: quickly checking whether — and roughly how much — content exists
+    for a term over a NARROW window (a single year, optionally one state). It
+    walks every result page to produce the count, so broad or common-term queries
+    make many API calls and can trip CAPTCHA protection — keep the date range
+    tight. For actual downloads, use discover-via-batches with --auto-enqueue
+    followed by process-downloads.
+    """
     config = Config()
     client = LocApiClient(**config.get_api_config())
     processor = config.processor_class()

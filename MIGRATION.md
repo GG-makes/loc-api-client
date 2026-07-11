@@ -747,3 +747,30 @@ Items requiring further investigation:
     ANSWER: dateFilterType is no longer supported. 
 - Are there new capabilities available through the `loc.gov` API that should be adopted?
 - Which legacy CLI commands no longer represent useful workflows?
+
+
+### CLI Command Status (post-migration)
+
+Commands that only touch the local DB, filesystem, or process state are
+API-agnostic and unaffected by the migration: auto-enqueue, populate-queue,
+list-facets, show-queue, status, discovery-status, download-stats,
+check-facet-progress, cleanup-downloads, pause/resume-operations,
+reset-captcha-state, reset-stuck-downloads, reset-stuck-facets, resume-downloads,
+retry-failed-facets, split-facet, set/show-conservative-mode. ✅
+
+API-touching commands, migrated and expected to work on loc.gov:
+
+| Command | Status | Notes |
+|---|---|---|
+| auto-discover-facets | ✅ works | CAPTCHA-prone on large facets (uses the search API); use small --batch-size |
+| create-facets | ✅ works | `--estimate-items` inherits the lccn-no-op estimate caveat (ADR 0004) |
+| discover-via-batches | ✅ works | batch endpoint (fo=json); CAPTCHA-friendly bulk path |
+| setup-download-workflow | ✅ works | orchestrates create-facets + discover + enqueue (date/state only) |
+| test-discovery | ✅ works | small focused date/state discovery |
+| process-downloads / download-page / download-priority | ✅ works | now resolve loc.gov asset URLs via item-detail enrichment (ADR 0003) |
+| split-database | ✅ works | does not carry `resume_cursor` to workers (ADR 0007) — workers re-discover |
+| discover / newspaper (group) | ⚠️ verify | newspaper-list fetch is only half-migrated — `get_newspapers` still builds the legacy request inline (MIGRATION.md "Implementation Status") |
+| estimate-facets / fix-wildly-inaccurate-estimates | ⚠️ caveat | estimates run but the `estimate_download_size` lccn filter is a pre-existing no-op (ADR 0004) |
+| search-text | ⚠️ caveat | works but paginates every page to count → CAPTCHAs on common terms (ADR 0004); narrow windows only |
+| watch-progress | ⚠️ caveat | tui_monitor has deferred bugs (timeout NameError; cross-process rate-limit singleton) (ADR 0004) |
+| merge-databases | ❌ broken | references columns that don't exist (ADR 0004) |

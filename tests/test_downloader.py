@@ -334,7 +334,83 @@ class TestDownloadProcessor:
         assert result['downloaded_pages'] == 1
         assert result['errors'] == 1
         assert result['total_pages'] == 2
-    
+        
+    def test_download_page_enriches_locgov_page(self, downloader, mock_storage):
+        """A loc.gov page with NULL asset URLs is enriched (item detail) before download."""
+        from newsagger.processor_new import PageInfo
+
+        item_id = 'resource/sn1/1906-04-18/ed-1/?sp=1'
+        unenriched = {
+            'item_id': item_id, 'lccn': 'sn1', 'title': 'T', 'date': '1906-04-18',
+            'edition': 1, 'sequence': 1,
+            'page_url': 'https://www.loc.gov/resource/sn1/1906-04-18/ed-1',
+            'pdf_url': None, 'jp2_url': None, 'ocr_url': None, 'ocr_text': None,
+            'enriched': 0, 'downloaded': False,
+        }
+        enriched = {**unenriched, 'pdf_url': 'https://tile.loc.gov/x/0281.pdf',
+                    'jp2_url': 'https://tile.loc.gov/x/0281.jp2',
+                    'ocr_url': 'https://tile.loc.gov/text/y?full_text=1', 'enriched': 1}
+        mock_storage.get_page_by_item_id.side_effect = [unenriched, enriched]
+
+        downloader.processor = Mock()
+        downloader.processor.enrich_page.return_value = PageInfo(
+            item_id=item_id, lccn='sn1', title='T', date='1906-04-18',
+            edition=1, sequence=1, page_url=unenriched['page_url'],
+            pdf_url='https://tile.loc.gov/x/0281.pdf',
+            jp2_url='https://tile.loc.gov/x/0281.jp2',
+            ocr_text=None, word_count=None,
+            ocr_url='https://tile.loc.gov/text/y?full_text=1',
+        )
+        downloader.file_types = ['pdf']
+        # Stub the byte download (thread-local session, not self.session) — keep it offline
+        downloader._download_files_concurrent = Mock(return_value=[
+            {'success': True, 'file_path': 'x.pdf', 'size_mb': 1.0}
+        ])
+
+        result = downloader._download_page(item_id)
+
+        downloader.processor.enrich_page.assert_called_once()
+        # the enriched pdf_url is what got handed to the downloader
+        tasks = downloader._download_files_concurrent.call_args[0][0]
+        assert tasks[0]['url'] == 'https://tile.loc.gov/x/0281.pdf'
+        mock_storage.update_page_urls.assert_called_once_with(
+            item_id,
+            pdf_url='https://tile.loc.gov/x/0281.pdf',
+            jp2_url='https://tile.loc.gov/x/0281.jp2',
+            ocr_url='https://tile.loc.gov/text/y?full_text=1',
+        )
+        assert result['success'] is True
+
+    def test_download_page_fetches_and_parses_ocr(self, downloader, mock_storage, temp_dir):
+        """loc.gov OCR: fetch ocr_url, dig full_text from the JSON, write .txt, mark ocr_fetched."""
+        import json
+        from newsagger.processor_new import LocGovResponseProcessor
+
+        resp = Mock()
+        resp.raise_for_status.return_value = None
+        resp.headers = {}
+        resp.text = json.dumps({'/service/x.xml': {'full_text': 'RECIPE for bread...'}})
+        downloader.session = Mock()
+        downloader.session.get.return_value = resp
+
+        mock_storage.get_page_by_item_id.return_value = {
+            'item_id': 'item_ocr', 'lccn': 'sn1', 'title': 'T', 'date': '1906-04-18',
+            'edition': 1, 'sequence': 1, 'page_url': 'https://www.loc.gov/resource/sn1/ed-1',
+            'pdf_url': 'https://tile.loc.gov/x/0281.pdf', 'jp2_url': None,
+            'ocr_url': 'https://tile.loc.gov/text/y?full_text=1', 'ocr_text': None,
+            'enriched': 1, 'downloaded': False,
+        }
+        downloader.processor = LocGovResponseProcessor()  # real fulltext dig
+        downloader.file_types = ['ocr']
+
+        result = downloader._download_page('item_ocr')
+
+        mock_storage.mark_ocr_fetched.assert_called_once_with('item_ocr')
+        ocr_file = Path(temp_dir) / 'sn1' / '1906' / '04' / 'item_ocr_ocr.txt'
+        assert ocr_file.read_text(encoding='utf-8') == 'RECIPE for bread...'
+        assert result['success'] is True
+
+
     @patch.object(DownloadProcessor, '_download_page')
     def test_download_periodical(self, mock_download_page, downloader, mock_storage):
         """Test downloading all content from a periodical."""

@@ -147,8 +147,9 @@ import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Callable
 from urllib import response
+import json
 
 
 logger = logging.getLogger(__name__)
@@ -212,6 +213,8 @@ class PageInfo:
     jp2_url: Optional[str]
     ocr_text: Optional[str]  # text content for legacy API; URL to OCR file for loc.gov API
     word_count: Optional[int]
+    ocr_url: Optional[str] = None  # OCR/fulltext URL (loc.gov); None until enrichment/legacy detail
+    snippet: Optional[str] = None   # ~1000-char discovery excerpt (loc.gov search description)
 
     @staticmethod
     def _format_date(date_str: str) -> str:
@@ -308,6 +311,25 @@ class ResponseProcessor(ABC):
         Returns:
             PageInfo, or None if parsing fails.
         """
+
+    def enrich_page(self, page: Dict, fetch: Callable[[str], Dict]) -> Optional[PageInfo]:
+        """
+        Resolve a catalogued page's asset URLs via an item-detail fetch.
+
+        Default (legacy): no-op — legacy search results already carry the URLs.
+        `fetch(url)` returns parsed JSON. Override for APIs whose search results
+        omit asset URLs (loc.gov).
+        """
+        return None
+
+    def parse_fulltext_response(self, body) -> Optional[str]:
+        """
+        Extract OCR text from a fetched fulltext resource, at download time.
+
+        Default (legacy): the body is already plain text. Override where the
+        fulltext endpoint returns something else (loc.gov: JSON).
+        """
+        return body if isinstance(body, str) else None
 
     def parse_page_from_issue(self, page_data, issue_details: Dict, *args, **kwargs) -> Optional[PageInfo]:
         """
@@ -903,14 +925,16 @@ class LocGovResponseProcessor(ResponseProcessor):
                 page_url = item.get('id', '') or item.get('url', '')
                 base = page_url.split('?')[0].rstrip('/')
 
-                # PDF/JP2: not in search result resources — construct from base path
-                # Confirmed via item detail that these paths are valid
-                pdf_url = f"{base}.pdf" if base else None
-                jp2_url = f"{base}.jp2" if base else None
+                # loc.gov search results carry no usable asset URLs — resolved lazily
+                # at download via item-detail enrichment (ADR 0003). Store NULL so the
+                # enrichment trigger fires; the old {base}.pdf construction was wrong
+                # (issue-level path, wrong host — see ADR 0003 Alternatives).
+                pdf_url = None
+                jp2_url = None
 
-                # description field contains OCR text in search results (confirmed)
+                # description is the ~1000-char search snippet — a triage aid, not full OCR
                 description = item.get('description', [])
-                ocr_text = description[0] if description else None
+                snippet = description[0] if description else None
 
                 results.append(PageInfo(
                     item_id=item_id,
@@ -922,7 +946,9 @@ class LocGovResponseProcessor(ResponseProcessor):
                     page_url=base,
                     pdf_url=pdf_url,
                     jp2_url=jp2_url,
-                    ocr_text=ocr_text,
+                    ocr_text=None,
+                    ocr_url=None,
+                    snippet=snippet,
                     word_count=None,
                 ))
             except Exception:
@@ -966,6 +992,30 @@ class LocGovResponseProcessor(ResponseProcessor):
             'from': pagination.get('from', 1),
             'to': pagination.get('to', 0),
         }
+
+    def enrich_page(self, page: Dict, fetch: Callable[[str], Dict]) -> Optional[PageInfo]:
+        """loc.gov: fetch item detail for a catalogued page and resolve its asset URLs."""
+        item_id = page.get('item_id', '')
+        if not item_id:
+            return None
+        # item_id retains ?sp=N (the page selector); page_url does not. Build the
+        # per-page detail URL from item_id so we fetch the page, not the issue.
+        full_url = f"{self.base_url}{item_id}"
+        sep = '&' if '?' in item_id else '?'
+        details = fetch(f"{full_url}{sep}fo=json")
+        if not details:
+            return None
+        return self.parse_page_details(details, page_url=full_url)
+
+    def parse_fulltext_response(self, body) -> Optional[str]:
+        """loc.gov fulltext_file returns JSON: {<segment_path>: {"full_text": "..."}}."""
+        try:
+            if isinstance(body, str):
+                body = json.loads(body)
+            return next(iter(body.values())).get('full_text')
+        except Exception as e:
+            logger.error(f"Failed to parse loc.gov fulltext response: {e}")
+            return None
 
     def parse_batch_list(self, response: Dict) -> List[Dict]:
         """
@@ -1064,6 +1114,7 @@ class LocGovResponseProcessor(ResponseProcessor):
             item_id = self.strip_base_url(page_url).replace('.json', '') if page_url else ''
             base = page_url.replace('.json', '') if page_url else ''
 
+            pdf = resource.get('pdf')
             return PageInfo(
                 item_id=item_id,
                 lccn=lccn,
@@ -1072,9 +1123,10 @@ class LocGovResponseProcessor(ResponseProcessor):
                 edition=edition,
                 sequence=sequence,
                 page_url=base,
-                pdf_url=resource.get('pdf'),           # confirmed key name
-                jp2_url=resource.get('image'),         # confirmed key name
-                ocr_text=resource.get('fulltext_file'),  # confirmed key name
+                pdf_url=pdf,
+                jp2_url=pdf.replace('.pdf', '.jp2') if pdf and pdf.endswith('.pdf') else None,
+                ocr_text=None,                          # full text fetched at download, not here
+                ocr_url=resource.get('fulltext_file'),  # word-coordinates service (JSON)
                 word_count=None,
             )
         except Exception as e:

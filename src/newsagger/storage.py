@@ -80,6 +80,27 @@ class NewsStorage(DatabaseOperationMixin):
             if 'city' not in newspaper_columns:
                 cursor.execute("ALTER TABLE newspapers ADD COLUMN city TEXT")
                 self.logger.info("Added city column to newspapers")
+
+            # Add item-detail enrichment columns to pages
+            cursor.execute("PRAGMA table_info(pages)")
+            page_columns = [column[1] for column in cursor.fetchall()]
+
+            if 'ocr_url' not in page_columns:
+                cursor.execute("ALTER TABLE pages ADD COLUMN ocr_url TEXT")
+                self.logger.info("Added ocr_url column to pages")
+
+            if 'enriched' not in page_columns:
+                cursor.execute("ALTER TABLE pages ADD COLUMN enriched INTEGER DEFAULT 0")
+                self.logger.info("Added enriched column to pages")
+
+            if 'ocr_fetched' not in page_columns:
+                cursor.execute("ALTER TABLE pages ADD COLUMN ocr_fetched INTEGER DEFAULT 0")
+                self.logger.info("Added ocr_fetched column to pages")
+
+            if 'snippet' not in page_columns:
+                cursor.execute("ALTER TABLE pages ADD COLUMN snippet TEXT")
+                self.logger.info("Added snippet column to pages")
+
             conn.commit()
             
         except Exception as e:
@@ -119,11 +140,15 @@ class NewsStorage(DatabaseOperationMixin):
                     edition INTEGER,
                     sequence INTEGER,
                     page_url TEXT,
-                    pdf_url TEXT,
-                    jp2_url TEXT,
-                    ocr_text TEXT,
+                    pdf_url TEXT,        -- asset URL. loc.gov: spotted via item-detail enrichment; legacy search: constructed {base}.pdf
+                    jp2_url TEXT,        -- asset URL. loc.gov: spotted via enrichment (pdf→.jp2); legacy search: constructed {base}.jp2
+                    ocr_url TEXT,        -- OCR/fulltext URL, "spotted". loc.gov: resource.fulltext_file; legacy detail: `text`
+                    ocr_text TEXT,       -- full OCR text ("called"). legacy: inline ocr_eng; loc.gov: NULL (full text → file)
+                    snippet TEXT,        -- ~1000-char discovery excerpt (loc.gov search `description`); triage aid
                     word_count INTEGER,
                     downloaded BOOLEAN DEFAULT FALSE,
+                    enriched INTEGER DEFAULT 0,     -- 1 once item-detail fetch populated the *_url columns (loc.gov)
+                    ocr_fetched INTEGER DEFAULT 0,  -- 1 once ocr_url was GET'd and its text written
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (lccn) REFERENCES newspapers (lccn)
                 );
@@ -310,10 +335,10 @@ class NewsStorage(DatabaseOperationMixin):
             for page in pages:
                 try:
                     conn.execute("""
-                        INSERT OR REPLACE INTO pages 
+                        INSERT OR IGNORE INTO pages 
                         (item_id, lccn, title, date, edition, sequence, 
-                         page_url, pdf_url, jp2_url, ocr_text, word_count)
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                         page_url, ocr_url, pdf_url, jp2_url, ocr_text, snippet, word_count)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """, (
                         page.item_id,
                         page.lccn,
@@ -322,9 +347,11 @@ class NewsStorage(DatabaseOperationMixin):
                         page.edition,
                         page.sequence,
                         page.page_url,
+                        page.ocr_url,
                         page.pdf_url,
                         page.jp2_url,
                         page.ocr_text,
+                        page.snippet,
                         page.word_count
                     ))
                     inserted += 1
@@ -403,7 +430,24 @@ class NewsStorage(DatabaseOperationMixin):
         with self._connect() as conn:
             conn.execute("UPDATE pages SET downloaded = TRUE WHERE item_id = ?", (item_id,))
             conn.commit()
+
+    def update_page_urls(self, item_id: str, pdf_url: Optional[str] = None,
+                         jp2_url: Optional[str] = None, ocr_url: Optional[str] = None):
+        """Persist item-detail enrichment results and mark the page enriched ('spotted')."""
+        with self._connect() as conn:
+            conn.execute("""
+                UPDATE pages
+                SET pdf_url = ?, jp2_url = ?, ocr_url = ?, enriched = 1
+                WHERE item_id = ?
+            """, (pdf_url, jp2_url, ocr_url, item_id))
+            conn.commit()
     
+    def mark_ocr_fetched(self, item_id: str):
+        """Mark that ocr_url has been fetched and its OCR text written to disk."""
+        with self._connect() as conn:
+            conn.execute("UPDATE pages SET ocr_fetched = 1 WHERE item_id = ?", (item_id,))
+            conn.commit()
+
     def get_page_by_item_id(self, item_id: str) -> Dict:
         """Get a single page by item_id."""
         with self._connect() as conn:
@@ -919,10 +963,10 @@ class NewsStorage(DatabaseOperationMixin):
                 for page in pages:
                     try:
                         conn.execute("""
-                            INSERT OR REPLACE INTO pages 
+                            INSERT OR IGNORE INTO pages 
                             (item_id, lccn, title, date, edition, sequence, 
-                             page_url, pdf_url, jp2_url, ocr_text, word_count)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                             page_url, pdf_url, jp2_url, ocr_text, snippet, word_count)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                         """, (
                             page.item_id,
                             page.lccn,
@@ -931,9 +975,11 @@ class NewsStorage(DatabaseOperationMixin):
                             page.edition,
                             page.sequence,
                             page.page_url,
+                            page.ocr_url,
                             page.pdf_url,
                             page.jp2_url,
                             page.ocr_text,
+                            page.snippet,
                             page.word_count
                         ))
                         successfully_stored_pages.append(page)
@@ -1178,6 +1224,7 @@ class NewsStorage(DatabaseOperationMixin):
         """Get pages discovered for a specific facet."""
         # For now, this is a simple implementation
         # In a real system, you'd want to track which facet discovered which pages
+        # TODO: Update if needed for download system.
         with self._connect() as conn:
             cursor = conn.cursor()
             

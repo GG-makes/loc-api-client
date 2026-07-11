@@ -151,7 +151,7 @@ Of the three endpoint pairs, **Page search** and **Batch list** are modeled on b
 | `ops=` | search type: `PHRASE`, `AND`, `OR`, `~5`, `~10` |
 | `dl=` | display level: `all`, `title`, `issue`, `page` |
 | `front_pages_only=true` | filter to front pages |
-| `location_city=` | city-level filter |
+| `location_city=` | city-level filter 
 | `location_county=` | county-level filter |
 | `partof_title=` | filter by newspaper title name |
 | `fa=batch:` | filter by batch name |
@@ -231,6 +231,7 @@ asset download (fetch)    →  PDF : GET direct
 | `jp2_url` | constructed / detail `jp2` | constructed from `pdf` |
 | `ocr_url` | detail `text` / issue-constructed | `resource['fulltext_file']` |
 | `ocr_text` | inline `ocr_eng` (text) | NULL — fetched to file at download, with `ocr_fetched=1` |
+| `snippet` | None | `description` |
 | `enriched` | n/a (search self-contained) | 1 after item-detail fetch |
 
 
@@ -248,7 +249,9 @@ See *Text and Image Retrieval by API Version* below for the full picture.
 | `pdf_url` | constructed `{base}.pdf` (not a returned field) | not in search results | item detail: `resource['pdf']` |
 | `jp2_url` | constructed `{base}.jp2` (not a returned field) | not in search results | item detail: constructed `resource['pdf'].replace('.pdf','.jp2')` — `resource['image']` is only a ~6% preview |
 | `ocr_url` | n/a in search (text was inline); page-detail `text` / issue `{base}/ocr.txt` are URLs | not in search results | item detail: `resource['fulltext_file']` |
-| `ocr_text` | full OCR text inline (`ocr_eng`) | ~1000-char snippet (`description`) | loc.gov: fetched at download from `ocr_url` (JSON → `full_text`); see *Text and Image Retrieval by API Version* |
+| `ocr_text` | full OCR text inline (`ocr_eng`) | NULL — full text → file at download | loc.gov: fetched at download from `ocr_url` (JSON → `full_text`); see *Text and Image Retrieval by API Version* |
+| `snippet` | ~1000 character excerpt of ocr for searching | not available | `description` |
+
 | `word_count` | `word_count` (int) | not available | stored as `None` |
 
 ### Response Structure

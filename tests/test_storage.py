@@ -759,3 +759,81 @@ class TestNewsStorage:
         facet_id = storage.create_search_facet('date_range', '1906/1906')
         facet = storage.get_search_facet(facet_id)
         assert facet['resume_cursor'] is None
+
+    def test_update_page_urls_marks_enriched(self, storage):
+        """update_page_urls sets asset URLs and flips enriched=1 ('spotted')."""
+        page = PageInfo(item_id='item_e', lccn='sn1', title='T', date='1906-04-18',
+                        edition=1, sequence=1, page_url='https://example.com/item_e',
+                        pdf_url=None, jp2_url=None, ocr_text=None, word_count=None)
+        storage.store_pages([page])
+
+        storage.update_page_urls('item_e',
+            pdf_url='https://tile.loc.gov/x/0281.pdf',
+            jp2_url='https://tile.loc.gov/x/0281.jp2',
+            ocr_url='https://tile.loc.gov/text-services/y?full_text=1')
+
+        row = storage.get_page_by_item_id('item_e')
+        assert row['pdf_url'].endswith('.pdf')
+        assert row['jp2_url'].endswith('.jp2')
+        assert row['ocr_url'].endswith('full_text=1')
+        assert row['enriched'] == 1
+        assert row['ocr_fetched'] == 0
+
+    def test_mark_ocr_fetched(self, storage):
+        """mark_ocr_fetched flips ocr_fetched=1 ('called')."""
+        page = PageInfo(item_id='item_f', lccn='sn1', title='T', date='1906-04-18',
+                        edition=1, sequence=1, page_url='https://example.com/item_f',
+                        pdf_url=None, jp2_url=None, ocr_text=None, word_count=None)
+        storage.store_pages([page])
+        storage.mark_ocr_fetched('item_f')
+        assert storage.get_page_by_item_id('item_f')['ocr_fetched'] == 1
+
+    def test_restore_preserves_enrichment(self, storage):
+        """Re-discovery (a second store_pages with NULL urls) must NOT wipe
+        enrichment written at download time. Guards the INSERT OR IGNORE choice."""
+        page = PageInfo(item_id='item_r', lccn='sn1', title='T', date='1906-04-18',
+                        edition=1, sequence=1, page_url='https://example.com/item_r',
+                        pdf_url=None, jp2_url=None, ocr_text=None, word_count=None)
+        storage.store_pages([page])
+        storage.update_page_urls('item_r',
+            pdf_url='https://tile.loc.gov/x/0281.pdf',
+            jp2_url='https://tile.loc.gov/x/0281.jp2',
+            ocr_url='https://tile.loc.gov/text-services/y?full_text=1')
+
+        storage.store_pages([page])  # same item_id comes back from search, urls NULL
+
+        row = storage.get_page_by_item_id('item_r')
+        assert row['pdf_url'].endswith('.pdf')          # survived
+        assert row['ocr_url'].endswith('full_text=1')   # survived
+        assert row['enriched'] == 1                     # survived
+
+    def test_store_pages_includes_ocr_url(self, storage):
+        """ocr_url round-trips through store_pages (needs PageInfo.ocr_url — piece 2)."""
+        page = PageInfo(item_id='item_o', lccn='sn1', title='T', date='1906-04-18',
+                        edition=1, sequence=1, page_url='https://example.com/item_o',
+                        pdf_url=None, jp2_url=None, ocr_text=None, word_count=None,
+                        ocr_url='https://tile.loc.gov/text-services/y?full_text=1')
+        storage.store_pages([page])
+        row = storage.get_page_by_item_id('item_o')
+        assert row['ocr_url'].endswith('full_text=1')
+        assert row['enriched'] == 0 and row['ocr_fetched'] == 0
+
+    def test_migration_adds_page_enrichment_columns(self, temp_db):
+        """An existing pages table without the enrichment columns gains them on re-init."""
+        NewsStorage(temp_db)
+        with closing(sqlite3.connect(temp_db)) as conn:
+            conn.execute("DROP TABLE pages")
+            conn.execute("""
+                CREATE TABLE pages (
+                    item_id TEXT PRIMARY KEY, lccn TEXT, title TEXT, date TEXT,
+                    edition INTEGER, sequence INTEGER, page_url TEXT,
+                    pdf_url TEXT, jp2_url TEXT, ocr_text TEXT, word_count INTEGER,
+                    downloaded BOOLEAN DEFAULT FALSE,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            conn.commit()
+        NewsStorage(temp_db)
+        with closing(sqlite3.connect(temp_db)) as conn:
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(pages)").fetchall()]
+        assert 'ocr_url' in cols and 'enriched' in cols and 'ocr_fetched' in cols and 'snippet' in cols

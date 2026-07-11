@@ -700,7 +700,8 @@ class TestLocGovParsePages:
         """[LOCGOV] OCR text from 'description' field — snippet, not full text.
         NOTE: Unlike legacy ocr_eng, this is a truncated snippet (~1000 chars)."""
         result = locgov_processor.parse_pages(locgov_search_response)
-        assert result[0].ocr_text == 'Sample OCR text from the front page of the San Francisco Call.'
+        assert result[0].snippet == 'Sample OCR text from the front page of the San Francisco Call.'
+        assert result[0].ocr_text is None
 
     def test_parses_lccn_from_list(self, locgov_processor, locgov_search_response):
         """[LOCGOV] LCCN from 'number_lccn' list field."""
@@ -772,15 +773,17 @@ class TestLocGovParsePageDetails:
         assert result.pdf_url == locgov_page_details['resource']['pdf']
 
     def test_parses_jp2_url(self, locgov_processor, locgov_page_details):
-        """[LOCGOV] JP2 URL from resource.image field — confirmed key name."""
+        """[LOCGOV] JP2 URL constructed from the pdf storage path (.pdf→.jp2).
+        resource.image is only a ~6% IIIF preview — NOT the JP2 (confirmed live)."""
         result = locgov_processor.parse_page_details(locgov_page_details, '')
-        assert result.jp2_url == locgov_page_details['resource']['image']
+        assert result.jp2_url == locgov_page_details['resource']['pdf'].replace('.pdf', '.jp2')
 
     def test_parses_ocr_url_from_fulltext_file(self, locgov_processor, locgov_page_details):
         """[LOCGOV] OCR URL from resource.fulltext_file — confirmed key name.
         NOTE: Unlike legacy 'text' field, this is fulltext_file."""
         result = locgov_processor.parse_page_details(locgov_page_details, '')
-        assert result.ocr_text == locgov_page_details['resource']['fulltext_file']
+        assert result.ocr_url == locgov_page_details['resource']['fulltext_file']
+        assert result.ocr_text is None
 
     def test_returns_none_on_error(self, locgov_processor):
         """[LOCGOV] Returns None on malformed input."""
@@ -1265,3 +1268,76 @@ class TestRegressionEdgeCases:
         response = {'pages': [{}, {}, {'children': [{'results': [item]}]}, {}]}
         result = locgov_processor.parse_newspapers(response)
         assert result[0].start_year is None
+
+class TestParseFulltextResponse:
+    """The parse_fulltext_response twin: loc.gov digs JSON, legacy passes text through."""
+
+    def test_locgov_digs_full_text_from_json_string(self, locgov_processor):
+        """[LOCGOV] fulltext_file returns JSON; full_text is nested under a dynamic key."""
+        import json
+        body = json.dumps({'/service/ndnp/x/0001.xml': {'full_text': 'NOTICE\nCity news.'}})
+        assert locgov_processor.parse_fulltext_response(body) == 'NOTICE\nCity news.'
+
+    def test_locgov_accepts_already_parsed_dict(self, locgov_processor):
+        """[LOCGOV] Works whether given the raw JSON string or an already-parsed dict."""
+        body = {'/service/x.xml': {'full_text': 'hello'}}
+        assert locgov_processor.parse_fulltext_response(body) == 'hello'
+
+    def test_locgov_non_json_returns_none(self, locgov_processor):
+        """[LOCGOV] Garbage body doesn't raise — returns None."""
+        assert locgov_processor.parse_fulltext_response('<html>not json</html>') is None
+
+    def test_locgov_empty_dict_returns_none(self, locgov_processor):
+        """[LOCGOV] Empty object has no full_text — returns None, not a crash."""
+        assert locgov_processor.parse_fulltext_response({}) is None
+
+    def test_legacy_returns_text_passthrough(self, legacy_processor):
+        """[LEGACY] The legacy OCR fetch is already plain text — return it unchanged."""
+        assert legacy_processor.parse_fulltext_response('already plain OCR text') == 'already plain OCR text'
+
+
+class TestEnrichPage:
+    """The enrich_page twin: loc.gov fetches item detail + resolves asset URLs; legacy is a no-op."""
+
+    def test_locgov_builds_detail_url_and_resolves_assets(self, locgov_processor, locgov_page_details):
+        """[LOCGOV] Detail URL built from item_id (keeps ?sp=N); returns resolved PageInfo."""
+        calls = []
+        def fake_fetch(url):
+            calls.append(url)
+            return locgov_page_details
+
+        page = {'item_id': 'resource/sn84038012/1906-04-18/ed-1/?sp=1'}
+        result = locgov_processor.enrich_page(page, fake_fetch)
+
+        # sp survives, fo=json appended with '&' because the URL already has a query
+        assert calls == ['https://www.loc.gov/resource/sn84038012/1906-04-18/ed-1/?sp=1&fo=json']
+        assert result.pdf_url == locgov_page_details['resource']['pdf']
+        assert result.jp2_url == locgov_page_details['resource']['pdf'].replace('.pdf', '.jp2')
+        assert result.ocr_url == locgov_page_details['resource']['fulltext_file']
+
+    def test_locgov_uses_question_mark_when_item_id_has_no_query(self, locgov_processor, locgov_page_details):
+        """[LOCGOV] When item_id carries no query, fo=json is appended with '?'."""
+        calls = []
+        locgov_processor.enrich_page(
+            {'item_id': 'resource/sn84038012/1906-04-18/ed-1/'},
+            lambda url: calls.append(url) or locgov_page_details,
+        )
+        assert calls == ['https://www.loc.gov/resource/sn84038012/1906-04-18/ed-1/?fo=json']
+
+    def test_locgov_missing_item_id_returns_none_without_fetching(self, locgov_processor):
+        """[LOCGOV] No item_id → no request, None result."""
+        calls = []
+        result = locgov_processor.enrich_page({}, lambda url: calls.append(url))
+        assert result is None
+        assert calls == []
+
+    def test_locgov_empty_detail_returns_none(self, locgov_processor):
+        """[LOCGOV] A falsy fetch result yields None, not a crash."""
+        assert locgov_processor.enrich_page({'item_id': 'x'}, lambda url: None) is None
+
+    def test_legacy_enrich_page_is_noop(self, legacy_processor):
+        """[LEGACY] Legacy search already carried URLs — enrich_page is a no-op, no fetch."""
+        calls = []
+        result = legacy_processor.enrich_page({'item_id': 'x'}, lambda url: calls.append(url))
+        assert result is None
+        assert calls == []

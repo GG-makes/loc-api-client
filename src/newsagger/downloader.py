@@ -29,7 +29,9 @@ class DownloadProcessor:
                  download_dir: str = None, 
                  file_types: List[str] = None,
                  parallel_workers: int = None,
-                 file_concurrency: int = None):
+                 file_concurrency: int = None,
+                 processor=None
+                 ):
         self.storage = storage
         self.api_client = api_client
         
@@ -60,6 +62,13 @@ class DownloadProcessor:
         self.file_concurrency = max(1, min(file_concurrency, 12))  # 1-12 concurrent downloads
         self.logger.info(f"Configured for concurrent file downloads with {self.file_concurrency} workers per item")
         
+        # Config-selected ResponseProcessor for lazy item-detail enrichment
+        # (loc.gov: enrich_page fetches asset URLs; legacy: no-op).
+        if processor is None:
+            from .config import Config
+            processor = Config().processor_class()
+        self.processor = processor
+
         # Set up download session with appropriate headers
         self.session = requests.Session()
         self.session.headers.update({
@@ -542,6 +551,22 @@ class DownloadProcessor:
                 'size_mb': 0
             }
         
+        # Lazy item-detail enrichment: loc.gov search results store NULL asset URLs
+        # (ADR 0003). On first download, fetch item detail once and persist the URLs.
+        # Legacy pages already carry URLs, so this is skipped (enrich_page is a no-op).
+        if not page_data.get('pdf_url') and not page_data.get('enriched'):
+            enriched = self.processor.enrich_page(
+                page_data, lambda url: self.api_client._make_request(url)
+            )
+            if enriched:
+                self.storage.update_page_urls(
+                    item_id,
+                    pdf_url=enriched.pdf_url,
+                    jp2_url=enriched.jp2_url,
+                    ocr_url=enriched.ocr_url,
+                )
+                page_data = self.storage.get_page_by_item_id(item_id)  # refresh URLs
+        
         # Create directory structure: downloads/lccn/year/month/
         page_date = page_data['date']
         year = page_date[:4] if len(page_date) >= 4 else 'unknown'
@@ -583,15 +608,26 @@ class DownloadProcessor:
                     downloaded_files.append(result['file_path'])
                     total_size += result['size_mb']
         
-        # Save OCR text if available and requested
-        if 'ocr' in self.file_types and page_data.get('ocr_text'):
-            text_path = download_path / f"{safe_item_id}_ocr.txt"
-            try:
-                with open(text_path, 'w', encoding='utf-8') as f:
-                    f.write(page_data['ocr_text'])
-                downloaded_files.append(str(text_path))
-            except Exception as e:
-                self.logger.warning(f"Failed to save OCR text for {item_id}: {e}")
+        # OCR text: legacy carries inline text in ocr_text; loc.gov stores a URL in
+        # ocr_url whose fetch returns JSON — extract full_text via the processor twin.
+        if 'ocr' in self.file_types:
+            ocr_text = page_data.get('ocr_text')
+            if not ocr_text and page_data.get('ocr_url'):
+                try:
+                    resp = self.session.get(page_data['ocr_url'], timeout=120)
+                    ocr_text = self.processor.parse_fulltext_response(resp.text)
+                    if ocr_text:
+                        self.storage.mark_ocr_fetched(item_id)
+                except Exception as e:
+                    self.logger.warning(f"Failed to fetch OCR for {item_id}: {e}")
+            if ocr_text:
+                text_path = download_path / f"{safe_item_id}_ocr.txt"
+                try:
+                    with open(text_path, 'w', encoding='utf-8') as f:
+                        f.write(ocr_text)
+                    downloaded_files.append(str(text_path))
+                except Exception as e:
+                    self.logger.warning(f"Failed to save OCR text for {item_id}: {e}")
         
         # Save metadata if requested
         if 'metadata' in self.file_types:

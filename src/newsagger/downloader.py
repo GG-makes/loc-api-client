@@ -578,9 +578,12 @@ class DownloadProcessor:
         downloaded_files = []
         total_size = 0
         
-        # Clean the item_id to make it safe for filenames
-        safe_item_id = item_id.replace('/', '_').replace('\\', '_').replace(':', '_')
-        
+        # Sanitize for filenames on all platforms — loc.gov ids carry ?sp=N,
+        # and ? * : " < > | are illegal on Windows.
+        safe_item_id = item_id
+        for ch in '\\/:*?"<>|':
+            safe_item_id = safe_item_id.replace(ch, '_')       
+             
         # Prepare downloads for concurrent execution
         download_tasks = []
         

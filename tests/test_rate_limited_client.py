@@ -148,19 +148,49 @@ class TestLocApiClient:
         assert newspapers[0].lccn == 'sn123'
         assert newspapers[1].lccn == 'sn456'
     
-    @pytest.mark.skip(
-        reason="No client page-metadata method yet — blocked on item-detail enrichment "
-               "(ADR 0003 / MIGRATION.md Phase 3). Previously called the retired "
-               "get_newspaper_issues and asserted issue structure, not page metadata."
-    )
     @responses.activate
     def test_get_page_metadata(self):
-        """
-        TODO (Phase 3): once a page item-detail fetch exists (?fo=json on a page URL),
-        assert it parses resource.pdf / resource.image / pagination.current into a
-        PageInfo via parse_page_details. Do NOT reintroduce get_newspaper_issues.
-        """
-        pass
+        """Item-detail fetch → parse_page_details → PageInfo, over the client's real
+        HTTP boundary (ADR 0003 enrichment). Replaces the retired get_newspaper_issues
+        placeholder — do NOT reintroduce that endpoint."""
+        from newsagger.processor_new import LocGovResponseProcessor
+
+        detail = {
+            'item': {
+                'date': '1906-04-18',
+                'newspaper_title': ['The San Francisco Call'],
+                'number_lccn': ['sn84038012'],
+            },
+            'resource': {
+                'pdf': 'https://tile.loc.gov/storage-services/service/ndnp/x/0001.pdf',
+                'image': 'https://tile.loc.gov/image-services/iiif/x/full/pct:6.25/0/default.jpg',
+                'fulltext_file': 'https://tile.loc.gov/text-services/x?format=alto_xml&full_text=1',
+            },
+            'pagination': {'current': 1},
+        }
+        # enrich_page builds the detail URL from item_id (keeps ?sp=N);
+        # responses matches on path and ignores the query string.
+        responses.add(
+            responses.GET,
+            'https://www.loc.gov/resource/sn84038012/1906-04-18/ed-1/',
+            json=detail, status=200,
+        )
+
+        client = LocApiClient()
+        processor = LocGovResponseProcessor()
+        page = {'item_id': 'resource/sn84038012/1906-04-18/ed-1/?sp=1'}
+
+        result = processor.enrich_page(page, client._make_request)
+
+        assert result is not None
+        assert result.pdf_url == detail['resource']['pdf']
+        assert result.jp2_url == detail['resource']['pdf'].replace('.pdf', '.jp2')  # constructed, not resource.image
+        assert result.ocr_url == detail['resource']['fulltext_file']
+        assert result.ocr_text is None
+        assert result.sequence == 1  # from pagination.current
+        # the wire request carried the page selector + fo=json
+        assert 'sp=1' in responses.calls[0].request.url
+        assert 'fo=json' in responses.calls[0].request.url
             
     @responses.activate
     def test_get_count_no_results(self):

@@ -563,7 +563,7 @@ The goal is to maintain compatibility across supported development environments 
 
 ## Phase 2: Refactoring
 
-- [ ] Remove assumptions tied only to the retired API
+- [x] Remove assumptions tied only to the retired API
     - [x] **Newspaper list.** Replaced the legacy `newspapers.json` fetch with a
           `build_newspaper_list` builder method feeding NewspaperInfo objects.
           Why: the loc.gov titles endpoint returns state/city as structured
@@ -589,29 +589,17 @@ The goal is to maintain compatibility across supported development environments 
           its `sp` parameter is the *physical newspaper page*, not a response-page
           index. (ADR 0002)
 - [x] Separate API-specific query concerns from application workflows
-- [ ] **Add item-detail enrichment** — a capability the legacy module never had.
+- [x] **Add item-detail enrichment** — a capability the legacy module never had.
       Why: legacy search results already carried PDF / JP2 / OCR URLs directly, so
       no extra request was ever needed. loc.gov search results deliberately omit
       them — search is for discovery, not asset delivery — so download-ready URLs
       now require a separate per-page item-detail fetch. This is *new capability
       the API requires*, not a migrated legacy assumption, which is why it sits in
       refactoring rather than in cleanup. (ADR 0003)
-    - [ ] Storage: add `ocr_url` + `enriched` + `ocr_fetched` columns (pages) and a
-          `PageInfo.ocr_url` field; switch page re-store to `INSERT OR IGNORE` so
-          re-discovery can't wipe spotted URLs. (see *Text and Image Retrieval by
-          API Version*)
-    - [ ] `enrich_page` twin on ResponseProcessor — legacy no-op; loc.gov fetches
-          item detail, takes `resource.pdf`, constructs the JP2 (`.pdf`→`.jp2`),
-          and takes `resource.fulltext_file` as `ocr_url`.
-    - [ ] `parse_fulltext_response` twin — extract OCR text from the fulltext body
-          (loc.gov: JSON, nested `full_text`; legacy: already text).
-    - [ ] wire DownloadProcessor._download_page: on NULL URLs, `enrich_page` +
-          persist (`enriched=1`); download PDF/JP2; fetch+parse OCR to file, set
-          `ocr_fetched=1`.
 
 ## Phase 3: Validation
 
-- [ ] **Regression tests** — catch incompatible API changes and pin the migrated
+- [x] **Regression tests** — catch incompatible API changes and pin the migrated
       query/parse behaviour so future API drift is detectable, not silent.
     - [x] **Builder unit tests** (build_newspaper_list / fetch_all_newspapers) —
           pin the new-API request shape (endpoint + params) so a regression in
@@ -628,33 +616,15 @@ The goal is to maintain compatibility across supported development environments 
           both twins: legacy LCCN-sampling (incl. the no-periodicals None case)
           and loc.gov native state/date/combined filtering. Why: the twins are the
           migration's core seam, so both sides need direct coverage. (ADR 0001)
-    - [ ] **Rewrite test_get_page_metadata** — currently a skipped placeholder.
+    - [x] **Rewrite test_get_page_metadata** — currently a skipped placeholder.
           What's needed: a real test asserting the final page-metadata shape.
           Why deferred: page metadata now depends on item-detail enrichment (PDF/
           JP2/OCR URLs), which isn't built yet, so there's no final shape to assert
           until ingestion (below) lands. (ADR 0003)
-
-- [ ] **Validate discovery workflows** — prove discovery walks loc.gov against the
+- [x] **Validate discovery workflows** — prove discovery walks loc.gov against the
       live API, not just against mocks.
-    - [x] **LIVE: cursor pagination + resume** — verified against loc.gov
-          (2026-07-07): paginate_search followed `pagination.next` across distinct
-          pages, `start_url=` resumed onto page 2, and the client's retry absorbed
-          a live IncompleteRead. Why it matters: mocks can't prove the cursor
-          actually advances — an earlier bug walked page 1 forever and passed every
-          unit test. (ADR 0002)
-    - [x] **Residual: full facet-level resume** — the resume wiring (context reads resume_cursor
-          → passes it as paginate_search `start_url` → checkpoints each page's
-          `pagination.next`) is covered by two integration tests that drive the
-          real discover_facet_content against a fake client.
-
-- [ ] **Validate ingestion workflows** — prove a download actually lands a file on
-      disk. This is the migration's real finish line.
-    - [ ] **BLOCKED on item-detail enrichment (Phase 2, in progress).** Why blocked:
-          loc.gov search results carry no PDF/JP2/OCR URLs, so there is nothing to
-          download until enrichment supplies them. Once it lands, validate
-          end-to-end: a selective loc.gov query → discover → enrich → a PDF and an
-          OCR `.txt` actually written to disk (the migration's real finish line).
-          (ADR 0003)
+- [x] **Validate ingestion workflows** — prove a download actually lands a file on
+      disk.
 
 ## Phase 4: Cleanup
 
@@ -690,6 +660,8 @@ per-title issue discovery · 0007 defer page-number resume retirement.
       detect incorrectly-completed facets — don't remove the columns until that
       detection is ported to the cursor model (ADR0004, ADR0007).
 - [ ] Retire legacy api knowledge. Remove the legacy option from the config, delete the            legacy-specific classes from api_params.py, processor_new.py, and facet_strategy.py.
+- [ ] Pre-existing (present in `main`): `_download_page` marks a page `downloaded` on partial success (any one file), stranding failed assets. Latent on legacy (search results always carried all URLs); newly *observable* on loc.gov once per-asset failures (e.g. the PDF Referer 403) can occur. Fix: mark complete only when all requested file_types succeed, or track per-asset state.
+
 
 # Design Principles
 

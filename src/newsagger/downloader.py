@@ -807,8 +807,12 @@ class DownloadProcessor:
             if not hasattr(thread_local, 'session'):
                 thread_local.session = requests.Session()
                 thread_local.session.headers.update({
-                    'User-Agent': 'Newsagger/0.1.0 (Educational Archive Tool)'
+                    'User-Agent': 'Newsagger/0.1.0 (Educational Archive Tool)',
+                    # tile.loc.gov storage-services returns 403 for hotlinked PDF
+                    # downloads without a loc.gov Referer (JP2 is exempt).
+                    'Referer': 'https://www.loc.gov/',
                 })
+
             return thread_local.session
         
         def download_single_file(task):

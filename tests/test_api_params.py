@@ -348,7 +348,7 @@ class TestOperatorHandling:
         )
         result = LegacyQueryBuilder(params).build()
         assert result["andtext"] == "flood"
-        assert "ops" not in result
+        assert "op" not in result
 
     def test_legacy_does_not_raise_on_unsupported_operator(self):
         params = ChroniclingAmericaSearchParams(
@@ -375,24 +375,24 @@ class TestOperatorHandling:
         params = ChroniclingAmericaSearchParams(
             search_text="earthquake", search_operator="AND"
         )
-        assert LocGovQueryBuilder(params).build()["ops"] == "AND"
+        assert LocGovQueryBuilder(params).build()["op"] == "AND"
 
     def test_locgov_passes_or(self):
         params = ChroniclingAmericaSearchParams(
             search_text="flood", search_operator="OR"
         )
-        assert LocGovQueryBuilder(params).build()["ops"] == "OR"
+        assert LocGovQueryBuilder(params).build()["op"] == "OR"
 
     def test_locgov_passes_phrase(self):
         params = ChroniclingAmericaSearchParams(
             search_text="san francisco", search_operator="PHRASE"
         )
-        assert LocGovQueryBuilder(params).build()["ops"] == "PHRASE"
+        assert LocGovQueryBuilder(params).build()["op"] == "PHRASE"
 
     def test_qs_and_ops_absent_when_no_text(self):
         result = LocGovQueryBuilder(ChroniclingAmericaSearchParams()).build()
-        assert "qs" not in result
-        assert "ops" not in result
+        assert "q" not in result
+        assert "op" not in result
 
 
 # ---------------------------------------------------------------------------
@@ -553,7 +553,7 @@ class TestSplitDateRange:
 class TestStatesAndBuilderIndependence:
 
     LEGACY_ONLY_KEYS = {"format", "andtext", "state", "date1", "date2", "dateFilterType"}
-    LOCGOV_ONLY_KEYS = {"fo", "qs", "ops", "dates", "dl"}
+    LOCGOV_ONLY_KEYS = {"fo", "q", "op", "dates", "dl"}
 
     def test_legacy_uses_first_state_only(self):
         params = ChroniclingAmericaSearchParams(states=["california", "oregon"])
@@ -630,12 +630,12 @@ class TestLocGovBuildContract:
         }
 
     def test_direct_substitution_keys_renamed_correctly(self):
-        """andtext->qs, rows->c, page->sp, format=json->fo=json."""
+        """andtext->q, rows->c, page->sp, format=json->fo=json."""
         params = ChroniclingAmericaSearchParams(
             search_text="flood", page=3, rows=50,
         )
         result = LocGovQueryBuilder(params).build()
-        assert result["qs"] == "flood"
+        assert result["q"] == "flood"
         assert result["c"] == 50
         # Note no sp (page). legacy-only
         assert result["fo"] == "json"
@@ -671,12 +671,12 @@ class TestLocGovBuildContract:
         assert "lccn" not in result
 
     def test_operator_param_has_no_legacy_equivalent(self):
-        """ops= is new; only present when search text triggers it."""
+        """op= is new; only present when search text triggers it."""
         params = ChroniclingAmericaSearchParams(
             search_text="flood", search_operator="PHRASE",
         )
         result = LocGovQueryBuilder(params).build()
-        assert result["ops"] == "PHRASE"
+        assert result["op"] == "PHRASE"
 
     def test_full_query_matches_migration_doc_example(self):
         """
@@ -700,8 +700,8 @@ class TestLocGovBuildContract:
             "dl": "page",
             "at": "results,pagination",
             "c": 100,
-            "qs": "earthquake",
-            "ops": "OR",
+            "q": "earthquake",
+            "op": "OR",
             "dates": "1906-01-01/1906-12-31",
             "fa": [
                 "number_lccn:sn83045201",
@@ -751,7 +751,7 @@ class TestLegacyBuildContract:
             "state": "California",
         }
         # new-API-only params must never appear in legacy output
-        for key in ("qs", "ops", "dates", "location_state", "fa", "sp", "c", "fo", "dl"):
+        for key in ("q", "op", "dates", "location_state", "fa", "sp", "c", "fo", "dl"):
             assert key not in result
 
     def test_full_query_with_specific_dates_uses_range_and_mm_dd_yyyy(self):

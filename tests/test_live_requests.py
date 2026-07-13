@@ -60,7 +60,7 @@ class TestLocGovRequestsLive:
         assert "pages" not in data, "full nested shape returned — at= param ignored"
 
     def test_date_range_filter_accepted(self):
-        """start_date/end_date accepted; results fall within the requested year."""
+        """dates (single range param), full ISO date required; results fall within the requested year."""
         data = _get(LocGovQueryBuilder(ChroniclingAmericaSearchParams(
             date1="1906", date2="1906", rows=1
         )))
@@ -96,7 +96,7 @@ class TestLocGovRequestsLive:
         assert LCCN in data["results"][0].get("number_lccn", [])
 
     def test_text_search_accepted(self):
-        """qs= and ops= accepted; results present."""
+        """q= and op= accepted; results present."""
         data = _get(LocGovQueryBuilder(ChroniclingAmericaSearchParams(
             search_text="earthquake", search_operator="AND", rows=1
         )))
@@ -127,8 +127,18 @@ class TestLocGovRequestsLive:
 
         ids1 = {r["id"] for r in data1["results"]}
         ids2 = {r["id"] for r in data2["results"]}
-        assert ids1.isdisjoint(ids2)
-        
+        # loc.gov's default ordering isn't a stable unique sort, so a single item on
+        # the page boundary can repeat across result pages (dedup + INSERT OR IGNORE
+        # absorb it). The point here is that pagination ADVANCES — page 2 brings new
+        # items — not that the two pages are perfectly disjoint.
+        new_on_page2 = ids2 - ids1
+        assert new_on_page2, "pagination did not advance — page 2 has no new item IDs"
+        assert len(new_on_page2) >= 3, (
+            f"page 2 mostly repeats page 1 ({len(new_on_page2)}/{len(ids2)} new) — "
+            "pagination may not be advancing"
+        )
+
+
     def test_result_fields_match_processor_expectations(self):
         """
         Spot-check that result item keys match what LocGovResponseProcessor

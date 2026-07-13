@@ -42,7 +42,7 @@ one-line facts do not — those live in code comments or MIGRATION.md.
 |-----|-------|--------|
 | [0001](0001-api-version-builder-processor-split.md) | Isolate each API version behind QueryBuilder and ResponseProcessor | Accepted |
 | [0002](0002-locgov-sp-sequence-page-pagination.md) | loc.gov paginates via the pagination.next cursor, not `sp` | Accepted |
-| [0003](0003-lazy-item-detail-enrichment.md) | Fetch loc.gov PDF/JP2 URLs lazily at download time | Proposed |
+| [0003](0003-lazy-item-detail-enrichment.md) | Fetch loc.gov PDF/JP2 URLs lazily at download time | Accepted |
 | [0004](0004-defer-preexisting-defects-during-migration.md) | Defer pre-existing defects and half-built features to post-migration | Accepted |
 | [0005](0005-keep-legacy-api-path-alive.md) | Keep the legacy API path alive to preserve its test suite as a reference | Accepted |
 | [0006](0006-remove-periodical-discovery.md) | An exception to keep pre-existing defects and half-built features - remove when post-Aug 2025 api logic does not support their future implementation. In this case, the half-built feature can never be fully implemented and should

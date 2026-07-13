@@ -130,7 +130,7 @@ Of the three endpoint pairs, **Page search** and **Batch list** are modeled on b
 
 | Legacy | New | Notes |
 |---|---|---|
-| `andtext=` | `qs=` | keyword search |
+| `andtext=` | `q=` | keyword search |
 | `rows=` | `c=` | results per page |
 | `page=` | `response['pagination']['next']` | pagination |
 | `format=json` | `fo=json` | response format |
@@ -148,7 +148,7 @@ Of the three endpoint pairs, **Page search** and **Batch list** are modeled on b
 
 | Parameter | Purpose |
 |---|---|
-| `ops=` | search type: `PHRASE`, `AND`, `OR`, `~5`, `~10` |
+| `op=` | search type: `PHRASE`, `AND`, `OR`, `~5`, `~10` |
 | `dl=` | display level: `all`, `title`, `issue`, `page` |
 | `front_pages_only=true` | filter to front pages |
 | `location_city=` | city-level filter 
@@ -416,8 +416,7 @@ requests.get(
 
 **Filtering** — legacy `facet_` parameters are replaced by the `fa=` filter
 attribute prefix (`fa=number_lccn:`, `fa=location_state:`, `fa=batch:`) or
-explicit date parameters (`start_date=`, `end_date=`). Filtering capability
-is preserved and expanded.
+a combined date parameters (`dates` (single range param), full ISO date required). Filtering capability is preserved and expanded.
 
 **Facet counts** — the new API does not return aggregate facet counts in the JSON response. Any logic consuming these counts must be removed or redesigned.
 
@@ -446,7 +445,7 @@ The `discover_facet_content` wiring supports `date_range`, `state`, and `combine
 facet types, which map to date and state filtering via `ChroniclingAmericaSearchParams`.
 This covers the full bulk systematic discovery workflow.
 
-`LocGovQueryBuilder` exposes additional new-API capabilities (`ops=`, `qs=` text
+`LocGovQueryBuilder` exposes additional new-API capabilities (`op=`, `q=` text
 search, `location_city=`, `location_county=`, `fa=batch:`) that are not exercised
 by the current discovery workflow. These are available for interactive/CLI use via
 `from_cli()` but are intentionally out of scope for bulk facet discovery.
@@ -481,16 +480,22 @@ of the design of this module. The migration has chosen as a judgement call to ac
 dates as part of the pre- and post- date range construction logic, continuing the day-level
 intent already present in download_newspapere.
 
+3) Why are parameters `qs` and `ops` not filtering as expected? 
+
+ANSWER: While the Library of Congress Example Notebooks show qs and ops as the filter parameters, these will silently be ignored. q and op are the true parameters, as is used for the rest of the LoC.
+The module code was updated to use q and op.
 
 ### Parameter Mapping
 
 - Library of Congress' Chronicling America API Guidance, December 18 2023 - Courtesy of the Wayback Machine: [link](https://web.archive.org/web/20231218003023/https://chroniclingamerica.loc.gov/about/api/)
 - Library of Congress' Chronicling America API Guidance, June 17 2026: [link](https://libraryofcongress.github.io/data-exploration/loc.gov%20JSON%20API/Chronicling_America/README.html)
+**Note: In at least one place, this guidance is actively wrong** - The tutorials use api parameters `qs` and `ops` instead of `q` and `op`. It also references `start_date` and `end_date` instead of teh combined dates (single range param). As a rule of thumb, check the advice given here, and assume the api logic does not divert from general LoC query logic. 
 - Library of Congress Jupyter Notebooks: [link](github.com/nwy/Chronicling-America-API)
 - Response testing: [link](investigate_new_response_format.py)
 - Library of Congress link to OpenSearch XML document, December 20 2023 - Courtesy of the Wayback Machine: [link](https://web.archive.org/web/20231220131158/https://chroniclingamerica.loc.gov/search/pages/opensearch.xml)
 - chronam: [link](https://github.com/LibraryOfCongress/chronam/blob/7436a24c2cdf1e38cf2107d420be2721d35b2d32/core/index.py#L726)
 - Batch Response Testing: [link](investigate_new_batch_metadata.py)
+- General LoC Query Logic rules: [link](https://www.loc.gov/apis/json-and-yaml/requests/parameters/)
 
 # Implementation Approach
 

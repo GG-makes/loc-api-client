@@ -10,7 +10,7 @@ params = {
     "fo": "json",
     "c": 1,
     "dl": "page",
-    "qs": "earthquake",
+    "q": "earthquake",
     "start_date": "1906-01-01",
     "end_date": "1906-12-31",
 }
@@ -145,7 +145,7 @@ print(json.dumps(batch_data.get('pagination'), indent=2))
 
 # Investigation 5: OCR consistency check
 search_url = "https://www.loc.gov/collections/chronicling-america/"
-params = {"fo": "json", "c": 5, "dl": "page", "qs": "recipe",
+params = {"fo": "json", "c": 5, "dl": "page", "q": "recipe",
           "start_date": "1906-01-01", "end_date": "1906-12-31"}
 r_ocr = requests.get(search_url, params=params)
 ocr_data = r_ocr.json()

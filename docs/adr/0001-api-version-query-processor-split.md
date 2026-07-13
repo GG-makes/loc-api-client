@@ -7,7 +7,7 @@ Date: 2026-07-06
 In August 2025 the Library of Congress retired the Chronicling America legacy
 API and moved search to the loc.gov platform. The two APIs differ in both
 directions: request parameters (e.g. legacy `andtext`/`dateFilterType` vs
-loc.gov `qs`/`dates`/`fa` filters) and response shapes (legacy `items`/`newspapers`
+loc.gov `q`/`dates`/`fa` filters) and response shapes (legacy `items`/`newspapers`
 keys vs loc.gov nested `results`/`pages[2].children[0].results`). The project must
 run against either API during the transition, and early code was accumulating
 `if api_version == ...` conditionals across the client, discovery, and CLI layers.

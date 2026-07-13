@@ -32,7 +32,7 @@ LegacyQueryBuilder(QueryBuilder)
 
 LocGovQueryBuilder(QueryBuilder)
     Targets: https://www.loc.gov/collections/chronicling-america/
-    Conventions: dates as YYYY-MM-DD, state as lowercase, qs/ops, fo=json
+    Conventions: dates as YYYY-MM-DD, state as lowercase, q/op, fo=json
 
 Compatibility guarantee
 -----------------------
@@ -584,7 +584,7 @@ class LocGovQueryBuilder(QueryBuilder):
         - Dates as a YYYY-MM-DD/YYYY-MM-DD range via 'dates'
         - States as lowercase full names via 'fa=location_state:'
         (same fa= filter attribute pattern as lccn and batch)
-        - Search text via 'qs', operator via 'ops'
+        - Search text via 'q', operator via 'op'
         - LCCN filter via 'fa=number_lccn:{lccn}'
         - Batch filter via 'fa=batch:{batch}'
         - Output format via 'fo=json'
@@ -744,8 +744,8 @@ class LocGovQueryBuilder(QueryBuilder):
         
         # Search text and operator
         if self.params.search_text:
-            params["qs"] = self.params.search_text
-            params["ops"] = self.params.search_operator
+            params["q"] = self.params.search_text
+            params["op"] = self.params.search_operator
 
         # Date range
         if self.params.date1 is not None:

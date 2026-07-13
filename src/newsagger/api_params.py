@@ -744,8 +744,8 @@ class LocGovQueryBuilder(QueryBuilder):
         
         # Search text and operator
         if self.params.search_text:
-            params["qs"] = self.params.search_text
-            params["ops"] = self.params.search_operator
+            params["q"] = self.params.search_text
+            params["op"] = self.params.search_operator
 
         # Date range
         if self.params.date1 is not None:
